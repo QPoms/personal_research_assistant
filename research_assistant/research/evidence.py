@@ -181,3 +181,4 @@ def evidence_from_payload(
     if normalized_source is EvidenceSource.WEB:
         return WebEvidence.from_payload(payload)
     return PersonalEvidence.from_payload(payload)
+

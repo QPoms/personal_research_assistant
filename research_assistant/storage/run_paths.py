@@ -34,3 +34,4 @@ def create_run_paths(outputs_dir: Path, run_id: str | None = None) -> RunPaths:
     sections.mkdir(parents=True, exist_ok=False)
     return RunPaths(run_id=run_id, root=root, sections=sections, report=root / "report.md")
 
+

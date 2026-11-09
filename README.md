@@ -24,6 +24,10 @@ User query
         -> outputs/run_<id>/report.md
 ```
 
+The importable package lives directly at `research_assistant/`, mirroring the
+upstream repository's root-level `gpt_researcher/` package. There is no extra
+`src/` nesting.
+
 Source authorization is enforced by code when the agents are constructed:
 
 | Mode | Chief tools | Researcher tools |
@@ -71,6 +75,9 @@ uv run research-assistant `
   --query "分析近年来 RAG 技术的发展现状" `
   --source-mode web
 ```
+
+During repository development, the equivalent root-level entry point is
+`uv run python cli.py ...`.
 
 Available modes are `web`, `personal`, and `mixed`. Each run gets an isolated
 directory under `outputs/` with `run.json`, section drafts, and `report.md`.

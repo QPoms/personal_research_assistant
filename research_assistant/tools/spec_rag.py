@@ -327,3 +327,4 @@ def build_spec_rag_tool(settings: Settings):
 
     return search_personal_knowledge
 
+

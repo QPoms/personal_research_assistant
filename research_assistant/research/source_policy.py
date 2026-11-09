@@ -143,3 +143,4 @@ def select_allowed_tools(
     if missing and require_complete:
         raise KeyError(f"Missing required research tools: {', '.join(missing)}")
     return [available_tools[name] for name in names if name in available_tools]
+

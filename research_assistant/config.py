@@ -64,3 +64,4 @@ def load_settings() -> Settings:
     load_dotenv(override=False)
     return Settings()
 
+

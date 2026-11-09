@@ -122,3 +122,4 @@ def build_researcher_prompt(source_mode: SourceMode | str) -> str:
         mode_steps=_RESEARCHER_MODE_STEPS[mode],
     )
 
+

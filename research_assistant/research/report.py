@@ -19,3 +19,4 @@ def validate_report_file(path: Path) -> list[str]:
         warnings.append("report is unexpectedly short")
     return warnings
 
+

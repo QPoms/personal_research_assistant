@@ -31,7 +31,7 @@ test = [
 research-assistant = "research_assistant.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/research_assistant"]
+packages = ["research_assistant"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

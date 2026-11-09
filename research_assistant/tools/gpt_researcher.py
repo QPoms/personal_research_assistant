@@ -104,3 +104,4 @@ def build_web_research_tools(
     deep_research.cost_tracker = tracker  # type: ignore[attr-defined]
     return quick_search, deep_research
 
+
