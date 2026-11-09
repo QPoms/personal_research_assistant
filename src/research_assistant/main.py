@@ -58,6 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, RuntimeError) as exc:
         print(f"Configuration or runtime error: {exc}", file=sys.stderr)
         return 2
+    except Exception as exc:
+        # Provider and network failures should be recorded in run.json by the
+        # run manager and reported without leaking a full traceback or secrets.
+        print(f"Research failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print("Research interrupted.", file=sys.stderr)
         return 130

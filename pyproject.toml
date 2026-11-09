@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "QPoms" }]
 dependencies = [
+  "ddgs==9.16.1",
   "deepagents==0.7.8",
   # PyPI 0.16.0 has a broken import order in query_processing.py. Use the
   # audited upstream commit whose public package version is still 0.16.0.

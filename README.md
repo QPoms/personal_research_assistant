@@ -51,7 +51,9 @@ Copy-Item .env.example .env
 ```
 
 Configure `.env`. At minimum, set the Deep Agents/model-provider values and the
-search provider required by GPT Researcher. For private knowledge, also set:
+search provider required by GPT Researcher. `RETRIEVER=duckduckgo` works
+without a separate search key for development; Tavily requires its own key and
+is generally the more production-oriented choice. For private knowledge, also set:
 
 ```env
 SPECRAG_BASE_URL=http://127.0.0.1:8000

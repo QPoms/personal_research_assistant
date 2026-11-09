@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 
 class Settings(BaseSettings):
@@ -58,5 +59,8 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
+    # GPT Researcher and model providers read their own configuration directly
+    # from os.environ. Load the shared file before validating app-owned fields.
+    load_dotenv(override=False)
     return Settings()
 

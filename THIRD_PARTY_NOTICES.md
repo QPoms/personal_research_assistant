@@ -40,6 +40,13 @@ external distribution; this notice does not resolve or reinterpret it.
 - Upstream tag commit: `1e261ba201bb1af4dbc5cbc8b6424e709b850ea8`
 - Used through its public package API; no engine source is vendored here.
 
+## DDGS
+
+- Package version used: `9.16.1`
+- Purpose: explicit runtime dependency for GPT Researcher's DuckDuckGo
+  Retriever. The audited GPT Researcher commit imports `ddgs` but does not
+  declare it as a required dependency.
+
 ## SpecRAG
 
 - Independent local service version: `0.1.0`
