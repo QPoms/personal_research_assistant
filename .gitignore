@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest-tmp/
+.ruff_cache/
+.mypy_cache/
+
+# Environments and secrets
+.venv/
+.uv-cache/
+.uv-python/
+.env
+.env.*
+!.env.example
+
+# Runtime output
+outputs/
+
+# Local-only upstream reference; remove after implementation is complete.
+gpt-researcher-main/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

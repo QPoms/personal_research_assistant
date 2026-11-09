@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "personal-research-assistant"
+version = "0.1.0"
+description = "Agent-orchestrated research across the web and a private SpecRAG knowledge base."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "QPoms" }]
+dependencies = [
+  "deepagents==0.7.8",
+  # PyPI 0.16.0 has a broken import order in query_processing.py. Use the
+  # audited upstream commit whose public package version is still 0.16.0.
+  "gpt-researcher @ git+https://github.com/assafelovic/gpt-researcher.git@bbb974b9b21a497c170efdf5346d55a1ac8e6d02",
+  "httpx==0.28.1",
+  "pydantic-settings==2.10.1",
+  "python-dotenv==1.1.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3,<9.2",
+  "pytest-asyncio>=0.24,<2",
+]
+
+[project.scripts]
+research-assistant = "research_assistant.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_assistant"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
