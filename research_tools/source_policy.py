@@ -39,11 +39,11 @@ class ToolAuthorizationError(ValueError):
 
 _TOOL_ALLOWLIST: dict[tuple[AgentRole, SourceMode], tuple[str, ...]] = {
     (AgentRole.CHIEF, SourceMode.WEB): (QUICK_SEARCH,),
-    (AgentRole.CHIEF, SourceMode.PERSONAL): (PERSONAL_KNOWLEDGE_SEARCH,),
-    (AgentRole.CHIEF, SourceMode.MIXED): (
-        QUICK_SEARCH,
-        PERSONAL_KNOWLEDGE_SEARCH,
-    ),
+    # Full local research includes its own Planner and bounded Researchers.
+    # The Chief delegates it instead of running the same expensive pipeline
+    # once for scoping and again inside a section Researcher.
+    (AgentRole.CHIEF, SourceMode.PERSONAL): (),
+    (AgentRole.CHIEF, SourceMode.MIXED): (QUICK_SEARCH,),
     (AgentRole.RESEARCHER, SourceMode.WEB): (
         QUICK_SEARCH,
         DEEP_RESEARCH,

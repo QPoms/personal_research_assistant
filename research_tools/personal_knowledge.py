@@ -9,7 +9,12 @@ from typing import Any
 from langchain_core.tools import tool
 
 from backend.config import Settings
+from backend.runtime.model_factory import deep_agent_model
 from personal_knowledge.config import RetrievalCfg
+from personal_knowledge.research import (
+    LangChainStructuredResearchModel,
+    LocalResearchPipeline,
+)
 from personal_knowledge.service import LocalPersonalKnowledgeService
 
 
@@ -25,21 +30,62 @@ def build_personal_knowledge_tool(settings: Settings):
         index_dir=settings.personal_knowledge_index_dir,
         target_release=settings.personal_knowledge_release,
     )
-    service = LocalPersonalKnowledgeService(
+    core = LocalPersonalKnowledgeService(
         cfg,
         max_results=settings.personal_knowledge_max_results,
         allow_index_build=settings.personal_knowledge_allow_index_build,
     )
+    if settings.personal_knowledge_research_enabled:
+        if not settings.personal_knowledge_allow_external_model:
+            raise ValueError(
+                "Local research would send selected private evidence excerpts "
+                "to the configured model provider. Set "
+                "PERSONAL_KNOWLEDGE_ALLOW_EXTERNAL_MODEL=true only after "
+                "explicitly authorizing that disclosure."
+            )
+        model_name = (
+            settings.personal_knowledge_research_model
+            or settings.deep_agent_model
+        )
+        research_model = LangChainStructuredResearchModel(deep_agent_model(
+            model_name,
+            max_output_tokens=settings.deep_agent_max_output_tokens,
+            use_responses_api=settings.deep_agent_use_responses_api,
+        ))
+        service: Any = LocalResearchPipeline(
+            core,
+            research_model,
+            max_tasks=settings.personal_knowledge_max_tasks,
+            max_rounds=settings.personal_knowledge_max_retrieval_rounds,
+            max_parallel_tasks=settings.personal_knowledge_max_parallel_tasks,
+        )
+        search_method = service.research
+    else:
+        service = core
+        search_method = service.search
 
     @tool("search_personal_knowledge")
     async def search_personal_knowledge(query: str) -> dict[str, Any]:
-        """Search the configured local private corpus and return verified evidence.
+        """Research the local corpus and return a grounded evidence brief.
 
-        The corpus root, Release, indexes, and retrieval limits are fixed by
-        application configuration and cannot be selected by the model.
+        A local Planner decomposes complex questions, bounded Researchers run
+        hybrid retrieval, and a local Synthesizer returns findings plus selected
+        source-verified evidence. The Chief Editor still writes the final report.
+        Corpus paths, Release, indexes, and limits are application configuration.
         """
         try:
-            return await asyncio.to_thread(service.search, query)
+            result = await asyncio.to_thread(search_method, query)
+            payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+            if settings.personal_knowledge_research_enabled:
+                payload["answer"] = payload["local_summary"]
+                payload["evidence_status"] = (
+                    "retrieved" if payload["evidence"] else "insufficient"
+                )
+                payload["failure"] = None if payload["evidence"] else {
+                    "category": "no_valid_evidence",
+                    "message": "; ".join(payload["unresolved_gaps"]),
+                }
+            return payload
         except Exception as exc:
             return {
                 "status": "error",
@@ -48,6 +94,12 @@ def build_personal_knowledge_tool(settings: Settings):
                 "evidence": [],
                 "evidence_status": "insufficient",
                 "unresolved_gaps": [],
+                "plan": {"tasks": []},
+                "task_results": [],
+                "findings": [],
+                "conflicts": [],
+                "local_summary": "",
+                "pipeline_warnings": [],
                 "failure": {
                     "category": type(exc).__name__,
                     "message": str(exc),

@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     personal_knowledge_release: int = Field(default=17, ge=1)
     personal_knowledge_max_results: int = Field(default=6, ge=1, le=20)
     personal_knowledge_allow_index_build: bool = False
+    personal_knowledge_research_enabled: bool = True
+    personal_knowledge_allow_external_model: bool = False
+    personal_knowledge_research_model: str | None = None
+    personal_knowledge_max_tasks: int = Field(default=3, ge=1, le=3)
+    personal_knowledge_max_retrieval_rounds: int = Field(default=2, ge=1, le=2)
+    personal_knowledge_max_parallel_tasks: int = Field(default=3, ge=1, le=3)
 
     def validate_for_personal_research(self) -> None:
         root = self.personal_knowledge_root.expanduser().resolve()

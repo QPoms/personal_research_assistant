@@ -19,7 +19,8 @@ Authorized source mode: {source_mode}
 {source_instructions}
 
 Workflow:
-1. Scope: use the available scoping tool(s) to understand the topic.
+1. Scope: use available lightweight scoping tools. Do not run the full local
+   research Tool yourself; delegate local research to a Researcher.
 2. Plan: use `write_todos` to create 2-4 section tasks plus review and final
    assembly tasks.
 3. Delegate: issue independent section tasks to the `researcher` subagent in
@@ -50,12 +51,12 @@ _SOURCE_INSTRUCTIONS = {
         "Personal knowledge retrieval is not authorized."
     ),
     SourceMode.PERSONAL: (
-        "Use the embedded `search_personal_knowledge` Tool for scope and evidence. Web search and "
-        "GPT Researcher are not authorized."
+        "Plan from the user's question and delegate local research to Researchers. "
+        "Web search and GPT Researcher are not authorized."
     ),
     SourceMode.MIXED: (
-        "Use both `quick_search` and `search_personal_knowledge` for scope when "
-        "useful. Ensure the report distinguishes Web from Personal evidence."
+        "Use `quick_search` for lightweight Web scoping, then delegate local and "
+        "Web research. Ensure the report distinguishes Web from Personal evidence."
     ),
 }
 
@@ -67,14 +68,15 @@ as `query` and overall report topic as `parent_query`. You may use
 2. Preserve every in-text citation and source URL returned by GPT Researcher.""",
     SourceMode.PERSONAL: """1. Call `search_personal_knowledge` with the assigned
 question.
-2. Preserve the real retrieval status, Evidence IDs, specification, release,
-version, headings/clauses, line positions, and excerpts. Never invent missing
-locator data.""",
+2. Use its plan, task results, findings, conflicts, gaps, local summary, and
+selected Evidence. Preserve Evidence IDs, specification, release, version,
+headings/clauses, line positions, and excerpts. Never invent locator data.""",
     SourceMode.MIXED: """1. Call `deep_research` exactly once with the section topic
 and overall topic, and call `search_personal_knowledge` for relevant private
 evidence. You may use `quick_search` for a focused follow-up check.
-2. Keep Web citations and Personal Evidence IDs visibly distinct, then compare
-or combine conclusions only where the evidence supports doing so.""",
+2. Consume the local Tool's structured findings and selected Evidence. Keep Web
+citations and Personal Evidence IDs visibly distinct, then compare or combine
+conclusions only where the evidence supports doing so.""",
 }
 
 

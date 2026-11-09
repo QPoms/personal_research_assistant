@@ -4,9 +4,10 @@ Personal Research Assistant coordinates two independent research sources at
 the Agent layer:
 
 - **GPT Researcher 0.16.0** performs Web research through its public Python API.
-- **Personal Knowledge** is a slim, embedded retrieval engine migrated from
-  SpecRAG: Release-aware corpus selection, BM25, optional dense retrieval, RRF,
-  clause provenance, and source validation.
+- **Personal Knowledge** is a slim, embedded research engine migrated from
+  SpecRAG: bounded task planning, task Researchers, Release-aware BM25/Dense
+  retrieval, RRF, source validation, cross-task evidence merging, and a
+  grounded local brief for the Chief Editor.
 - **Deep Agents 0.7.8** supplies the Chief Editor harness, Researcher subagent,
   Todo management, filesystem tools, and task delegation.
 
@@ -30,6 +31,7 @@ deep_agents/                # Chief Editor and Researcher team construction
 personal_knowledge/         # embedded private-knowledge retrieval engine
   infrastructure/           # optional local vector-store adapter
   retrieval/                # corpus, BM25, dense, RRF, clauses, snapshots
+  research/                 # Planner, task Researchers, merger, local brief
 research_tools/             # Agent-facing Web/personal tools and policies
 docs/                       # architecture decisions
 tests/                      # unit and contract tests
@@ -51,6 +53,10 @@ User query
             -> Researcher subagents
                 -> GPT Researcher [Web]
                 -> Personal Knowledge Tool [private corpus]
+                    -> Local Planner
+                    -> bounded task Researchers
+                    -> evidence merger
+                    -> grounded local brief
         -> outputs/run_<id>/sections/*.md
         -> outputs/run_<id>/report.md
 ```
@@ -60,8 +66,8 @@ Source authorization is enforced in code when the agents are constructed:
 | Mode | Chief tools | Researcher tools |
 |---|---|---|
 | `web` | `quick_search` | `quick_search`, `deep_research` |
-| `personal` | `search_personal_knowledge` | `search_personal_knowledge` |
-| `mixed` | both scoping tools | all three tools |
+| `personal` | none; delegates local work | `search_personal_knowledge` |
+| `mixed` | `quick_search` | all three tools |
 
 ## Requirements
 
@@ -100,11 +106,17 @@ PERSONAL_KNOWLEDGE_ROOT=personal_knowledge_data
 PERSONAL_KNOWLEDGE_CORPUS_DIR=data/3gpp
 PERSONAL_KNOWLEDGE_INDEX_DIR=.local/indexes/specifications
 PERSONAL_KNOWLEDGE_RELEASE=17
+PERSONAL_KNOWLEDGE_RESEARCH_ENABLED=true
+PERSONAL_KNOWLEDGE_ALLOW_EXTERNAL_MODEL=false
 ```
 
 These paths and the Release are backend configuration, never model-controlled
 Tool arguments. Existing SpecRAG data can be reused by pointing
 `PERSONAL_KNOWLEDGE_ROOT` at its data root; no SpecRAG service needs to run.
+Full local research sends selected evidence excerpts to the configured
+Planner/Researcher/Synthesizer model. The privacy gate must be explicitly set
+to `true` before that disclosure is allowed. See
+[docs/personal-knowledge-workflow.md](docs/personal-knowledge-workflow.md).
 
 ## Run
 

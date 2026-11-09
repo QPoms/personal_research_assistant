@@ -17,12 +17,8 @@ from research_tools.source_policy import (
     ("role", "mode", "expected"),
     [
         (AgentRole.CHIEF, SourceMode.WEB, (QUICK_SEARCH,)),
-        (AgentRole.CHIEF, SourceMode.PERSONAL, (PERSONAL_KNOWLEDGE_SEARCH,)),
-        (
-            AgentRole.CHIEF,
-            SourceMode.MIXED,
-            (QUICK_SEARCH, PERSONAL_KNOWLEDGE_SEARCH),
-        ),
+        (AgentRole.CHIEF, SourceMode.PERSONAL, ()),
+        (AgentRole.CHIEF, SourceMode.MIXED, (QUICK_SEARCH,)),
         (
             AgentRole.RESEARCHER,
             SourceMode.WEB,
@@ -74,12 +70,12 @@ def test_registry_extras_never_pass_through():
         PERSONAL_KNOWLEDGE_SEARCH: "personal",
         "admin_secret_tool": "must-not-leak",
     }
-    assert select_allowed_tools(registry, "mixed", "chief") == ["quick", "personal"]
+    assert select_allowed_tools(registry, "mixed", "chief") == ["quick"]
 
 
 def test_missing_authorized_tool_fails_agent_construction_by_default():
     with pytest.raises(KeyError, match=PERSONAL_KNOWLEDGE_SEARCH):
-        select_allowed_tools({QUICK_SEARCH: object()}, "mixed", "chief")
+        select_allowed_tools({QUICK_SEARCH: object()}, "mixed", "researcher")
 
 
 def test_invalid_policy_values_fail_closed():

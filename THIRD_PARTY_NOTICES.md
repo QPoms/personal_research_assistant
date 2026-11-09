@@ -51,14 +51,19 @@ external distribution; this notice does not resolve or reinterpret it.
 
 - Source version: `0.1.0`
 - Audited local commit: `8c161ea3a3c8b3139af21500192982536a269362`
-- Adapted modules: corpus/domain models, Release-aware corpus discovery and
-  chunking, BM25, optional dense search adapter, RRF, clause indexing, index
-  snapshots, and vector-store adapter.
+- Adapted modules and workflow concepts: corpus/domain models, Release-aware
+  corpus discovery and chunking, BM25, optional dense search adapter, RRF,
+  clause indexing, index snapshots, vector-store adapter, bounded research
+  planning, dependent task execution, evidence merging, and grounded synthesis.
 - Removed boundaries: frontend, Docker, HTTP/MCP, authentication, workspaces,
   permissions, memory, context compaction, SpecFact lifecycle, evaluation, and
   worker/runtime persistence.
 - The retained code was modified to use application-owned local paths and to
   make dense retrieval optional while preserving verified lexical fallback.
+  The separate model-based sufficiency Judge was removed; task Researchers make
+  a bounded closure decision, while deterministic source provenance checks are
+  retained. The local Synthesizer returns a structured evidence brief rather
+  than the user-facing final answer.
 
 No standalone license file or project-license metadata was found in the
 audited local SpecRAG repository. Treat this migrated code as internal code and

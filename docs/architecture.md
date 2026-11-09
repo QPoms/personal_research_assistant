@@ -48,8 +48,11 @@ Responsibilities:
   uses Deep Agents' native Todo, filesystem, and subagent mechanisms.
 - `research_tools/` is the anti-corruption layer around external engines. It
   enforces `web`, `personal`, and `mixed` authorization and normalizes evidence.
-- `personal_knowledge/` is a reusable, framework-independent retrieval core. It
-  knows nothing about LangChain Tools, Deep Agents, CLI, authentication, or HTTP.
+- `personal_knowledge/retrieval/` is a reusable, framework-independent retrieval
+  core. `personal_knowledge/research/` restores a bounded SpecRAG-derived
+  Planner/Researcher/Merger/Synthesizer workflow behind a small chat-model
+  abstraction. Neither package knows about LangChain Tools, Deep Agents, CLI,
+  authentication, MCP, or HTTP services.
 
 ## What `memory` means in the reference project
 

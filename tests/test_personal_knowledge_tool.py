@@ -26,6 +26,7 @@ async def test_embedded_tool_returns_source_verified_evidence(tmp_path, monkeypa
         personal_knowledge_root=tmp_path,
         personal_knowledge_allow_index_build=True,
         personal_knowledge_max_results=3,
+        personal_knowledge_research_enabled=False,
     )
     tool = build_personal_knowledge_tool(settings)
 
@@ -48,6 +49,18 @@ def test_personal_mode_requires_existing_local_corpus(tmp_path):
         settings.validate_for_personal_research()
 
 
+def test_full_local_research_requires_explicit_external_model_authorization(tmp_path):
+    _corpus(tmp_path)
+    settings = Settings(
+        personal_knowledge_root=tmp_path,
+        personal_knowledge_allow_index_build=True,
+        personal_knowledge_research_enabled=True,
+        personal_knowledge_allow_external_model=False,
+    )
+    with pytest.raises(ValueError, match="send selected private evidence"):
+        build_personal_knowledge_tool(settings)
+
+
 @pytest.mark.asyncio
 async def test_query_is_the_only_model_controlled_argument(tmp_path, monkeypatch):
     _corpus(tmp_path)
@@ -56,6 +69,7 @@ async def test_query_is_the_only_model_controlled_argument(tmp_path, monkeypatch
         Settings(
             personal_knowledge_root=tmp_path,
             personal_knowledge_allow_index_build=True,
+            personal_knowledge_research_enabled=False,
         )
     )
     schema = tool.args_schema.model_json_schema()
