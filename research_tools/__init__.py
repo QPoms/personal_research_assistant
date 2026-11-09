@@ -1,13 +1,11 @@
 """Research tool adapters."""
 
 from .gpt_researcher import CostTracker, build_web_research_tools
-from .spec_rag import SpecRAGClient, SpecRAGError, build_spec_rag_tool
+from .personal_knowledge import build_personal_knowledge_tool
 
 __all__ = [
     "CostTracker",
-    "SpecRAGClient",
-    "SpecRAGError",
-    "build_spec_rag_tool",
+    "build_personal_knowledge_tool",
     "build_web_research_tools",
 ]
 

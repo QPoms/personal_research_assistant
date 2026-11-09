@@ -1,6 +1,6 @@
 """Repository-level CLI wrapper, mirroring the upstream project layout."""
 
-from research_assistant.main import main
+from backend.main import main
 
 
 if __name__ == "__main__":

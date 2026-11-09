@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
@@ -30,32 +30,21 @@ class Settings(BaseSettings):
     max_search_results: int = Field(default=5, ge=1, le=20)
     research_tool_timeout_seconds: float = Field(default=900.0, gt=0)
 
-    specrag_base_url: str = "http://127.0.0.1:8000"
-    specrag_workspace_id: str | None = None
-    specrag_access_token: SecretStr | None = None
-    specrag_release: int = Field(default=17, ge=1)
-    specrag_answer_language: str = "Chinese"
-    specrag_detail_level: str = "standard"
-    specrag_poll_interval_seconds: float = Field(default=2.0, gt=0)
-    specrag_poll_timeout_seconds: float = Field(default=60.0, ge=0)
-    specrag_http_timeout_seconds: float = Field(default=30.0, gt=0)
-
-    @field_validator("specrag_base_url")
-    @classmethod
-    def strip_base_url(cls, value: str) -> str:
-        return value.rstrip("/")
+    personal_knowledge_root: Path = Path("personal_knowledge_data")
+    personal_knowledge_corpus_dir: str = "data/3gpp"
+    personal_knowledge_index_dir: str = ".local/indexes/specifications"
+    personal_knowledge_release: int = Field(default=17, ge=1)
+    personal_knowledge_max_results: int = Field(default=6, ge=1, le=20)
+    personal_knowledge_allow_index_build: bool = False
 
     def validate_for_personal_research(self) -> None:
-        missing: list[str] = []
-        if not self.specrag_workspace_id:
-            missing.append("SPECRAG_WORKSPACE_ID")
-        if not self.specrag_access_token:
-            missing.append("SPECRAG_ACCESS_TOKEN")
-        if missing:
-            raise ValueError(
-                "Personal research requires configured SpecRAG access: "
-                + ", ".join(missing)
-            )
+        root = self.personal_knowledge_root.expanduser().resolve()
+        corpus = (root / self.personal_knowledge_corpus_dir).resolve()
+        index = (root / self.personal_knowledge_index_dir).resolve()
+        if not corpus.is_dir():
+            raise ValueError(f"Personal knowledge corpus does not exist: {corpus}")
+        if not index.is_dir() and not self.personal_knowledge_allow_index_build:
+            raise ValueError(f"Personal knowledge index does not exist: {index}")
 
 
 def load_settings() -> Settings:

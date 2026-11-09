@@ -8,10 +8,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from research_assistant.agents.builder import build_research_agent
-from research_assistant.config import Settings
-from research_assistant.research.source_policy import SourceMode, coerce_source_mode
-from research_assistant.storage.run_paths import RunPaths, create_run_paths
+from backend.config import Settings
+from backend.storage.run_paths import RunPaths, create_run_paths
+from deep_agents.builder import build_research_agent
+from research_tools.source_policy import SourceMode, coerce_source_mode
 
 
 @dataclass(frozen=True, slots=True)

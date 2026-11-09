@@ -20,9 +20,9 @@ repository are adapted from:
 - `deep_agents/tools.py`
 
 They were modified to add program-enforced Web/Personal/Mixed source modes,
-SpecRAG tool access, bounded concurrency, safe configuration, and run-scoped
-cost tracking. GPT Researcher's research engine itself is consumed as the
-published package and is not copied into this project.
+private-knowledge tool access, bounded concurrency, safe configuration, and run-scoped
+cost tracking. GPT Researcher's research engine itself is consumed as a pinned
+Python dependency and is not copied into this project.
 
 ### License metadata discrepancy
 
@@ -49,8 +49,18 @@ external distribution; this notice does not resolve or reinterpret it.
 
 ## SpecRAG
 
-- Independent local service version: `0.1.0`
+- Source version: `0.1.0`
 - Audited local commit: `8c161ea3a3c8b3139af21500192982536a269362`
-- Integration: Bearer-authenticated HTTP API only
-- No SpecRAG retrieval, LangGraph, or model implementation is copied here.
+- Adapted modules: corpus/domain models, Release-aware corpus discovery and
+  chunking, BM25, optional dense search adapter, RRF, clause indexing, index
+  snapshots, and vector-store adapter.
+- Removed boundaries: frontend, Docker, HTTP/MCP, authentication, workspaces,
+  permissions, memory, context compaction, SpecFact lifecycle, evaluation, and
+  worker/runtime persistence.
+- The retained code was modified to use application-owned local paths and to
+  make dense retrieval optional while preserving verified lexical fallback.
+
+No standalone license file or project-license metadata was found in the
+audited local SpecRAG repository. Treat this migrated code as internal code and
+resolve ownership/licensing before external distribution.
 

@@ -1,4 +1,4 @@
-from research_assistant.agents.prompts import build_chief_prompt, build_researcher_prompt
+from deep_agents.prompts import build_chief_prompt, build_researcher_prompt
 
 
 def test_personal_prompt_does_not_require_web_research():
@@ -9,7 +9,7 @@ def test_personal_prompt_does_not_require_web_research():
 
 def test_web_prompt_forbids_personal_scope_for_chief():
     prompt = build_chief_prompt("web", max_revision_rounds=1)
-    assert "SpecRAG/personal knowledge is not authorized" in prompt
+    assert "Personal knowledge retrieval is not authorized" in prompt
     assert "at most\n   1 revision" in prompt
 
 

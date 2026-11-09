@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from research_assistant.research.evidence import (
+from research_tools.evidence import (
     EvidenceSource,
     PersonalEvidence,
     WebEvidence,

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from research_assistant.storage.run_paths import create_run_paths
+from backend.storage.run_paths import create_run_paths
 
 
 def test_create_isolated_run_paths(tmp_path):

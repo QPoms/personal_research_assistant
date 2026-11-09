@@ -19,12 +19,12 @@ from deepagents import (
 )
 from deepagents.backends import FilesystemBackend
 
-from research_assistant.agents.prompts import build_chief_prompt, build_researcher_prompt
-from research_assistant.config import Settings
-from research_assistant.research.source_policy import SourceMode, coerce_source_mode
-from research_assistant.runtime.model_factory import deep_agent_model
-from research_assistant.tools.factory import build_research_tool_sets
-from research_assistant.tools.gpt_researcher import CostTracker
+from backend.config import Settings
+from backend.runtime.model_factory import deep_agent_model
+from deep_agents.prompts import build_chief_prompt, build_researcher_prompt
+from research_tools.factory import build_research_tool_sets
+from research_tools.gpt_researcher import CostTracker
+from research_tools.source_policy import SourceMode, coerce_source_mode
 
 
 _REGISTERED_PROFILES: set[str] = set()

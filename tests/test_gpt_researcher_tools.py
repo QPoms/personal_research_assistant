@@ -1,6 +1,6 @@
 import pytest
 
-import research_assistant.tools.gpt_researcher as adapter
+import research_tools.gpt_researcher as adapter
 
 
 class FakeResearcher:

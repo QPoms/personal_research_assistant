@@ -7,10 +7,10 @@ import asyncio
 from pathlib import Path
 import sys
 
-from research_assistant.config import load_settings
-from research_assistant.research.report import validate_report_file
-from research_assistant.research.run_manager import run_research
-from research_assistant.research.source_policy import SourceMode
+from backend.config import load_settings
+from backend.research.report import validate_report_file
+from backend.research.run_manager import run_research
+from research_tools.source_policy import SourceMode
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -1,6 +1,6 @@
 import pytest
 
-from research_assistant.research.source_policy import (
+from research_tools.source_policy import (
     DEEP_RESEARCH,
     PERSONAL_KNOWLEDGE_SEARCH,
     QUICK_SEARCH,

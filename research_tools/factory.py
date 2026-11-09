@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from research_assistant.config import Settings
-from research_assistant.research.source_policy import (
+from backend.config import Settings
+from research_tools.source_policy import (
     DEEP_RESEARCH,
     PERSONAL_KNOWLEDGE_SEARCH,
     QUICK_SEARCH,
@@ -15,8 +15,8 @@ from research_assistant.research.source_policy import (
     coerce_source_mode,
     select_allowed_tools,
 )
-from research_assistant.tools.gpt_researcher import CostTracker, build_web_research_tools
-from research_assistant.tools.spec_rag import build_spec_rag_tool
+from research_tools.gpt_researcher import CostTracker, build_web_research_tools
+from research_tools.personal_knowledge import build_personal_knowledge_tool
 
 
 @dataclass(slots=True)
@@ -42,7 +42,7 @@ def build_research_tool_sets(settings: Settings, source_mode: SourceMode | str) 
         registry[DEEP_RESEARCH] = deep_research
 
     if mode in {SourceMode.PERSONAL, SourceMode.MIXED}:
-        registry[PERSONAL_KNOWLEDGE_SEARCH] = build_spec_rag_tool(settings)
+        registry[PERSONAL_KNOWLEDGE_SEARCH] = build_personal_knowledge_tool(settings)
 
     return ResearchToolSets(
         chief=select_allowed_tools(registry, mode, AgentRole.CHIEF),

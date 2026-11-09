@@ -17,6 +17,7 @@ __pycache__/
 
 # Runtime output
 outputs/
+personal_knowledge_data/
 
 # Local-only upstream reference; remove after implementation is complete.
 gpt-researcher-main/

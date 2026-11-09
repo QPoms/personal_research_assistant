@@ -1,8 +1,8 @@
 """Normalized evidence records for web and personal-knowledge research.
 
-The adapters intentionally retain the unmodified input under ``raw``.  The
-normalization aliases are explicit and conservative because the SpecRAG API
-contract must be verified against the deployed service rather than guessed.
+The adapters intentionally retain the unmodified input under ``raw``. The
+normalization aliases are explicit and conservative so local source identity
+and locators are never guessed.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ class WebEvidence:
 
 @dataclass(frozen=True, slots=True)
 class PersonalEvidence:
-    """Verified evidence returned by the private SpecRAG service."""
+    """Verified evidence returned by embedded private-knowledge retrieval."""
 
     text: str
     evidence_id: str

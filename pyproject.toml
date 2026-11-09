@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "personal-research-assistant"
 version = "0.1.0"
-description = "Agent-orchestrated research across the web and a private SpecRAG knowledge base."
+description = "Agent-orchestrated research across the web and embedded private knowledge."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "Proprietary" }
@@ -22,16 +22,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+personal = [
+  "chromadb==1.5.9",
+  "sentence-transformers==6.1.0",
+  "tokenizers==0.22.2",
+]
 test = [
   "pytest>=8.3,<9.2",
   "pytest-asyncio>=0.24,<2",
 ]
 
 [project.scripts]
-research-assistant = "research_assistant.main:main"
+research-assistant = "backend.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["research_assistant"]
+packages = ["backend", "deep_agents", "personal_knowledge", "research_tools"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

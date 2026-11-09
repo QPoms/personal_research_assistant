@@ -2,12 +2,12 @@
 
 The workflow text is adapted from GPT Researcher 0.16.0
 ``deep_agents/agent.py`` and modified for program-enforced source modes and the
-SpecRAG tool. See ``THIRD_PARTY_NOTICES.md``.
+embedded private-knowledge tool. See ``THIRD_PARTY_NOTICES.md``.
 """
 
 from __future__ import annotations
 
-from research_assistant.research.source_policy import SourceMode, coerce_source_mode
+from research_tools.source_policy import SourceMode, coerce_source_mode
 
 
 CHIEF_EDITOR_PROMPT = """You are the Chief Editor of an autonomous research team.
@@ -47,10 +47,10 @@ Rules:
 _SOURCE_INSTRUCTIONS = {
     SourceMode.WEB: (
         "Use `quick_search` for scope. Delegate full web research to Researchers. "
-        "SpecRAG/personal knowledge is not authorized."
+        "Personal knowledge retrieval is not authorized."
     ),
     SourceMode.PERSONAL: (
-        "Use `search_personal_knowledge` for scope and evidence. Web search and "
+        "Use the embedded `search_personal_knowledge` Tool for scope and evidence. Web search and "
         "GPT Researcher are not authorized."
     ),
     SourceMode.MIXED: (
@@ -66,8 +66,8 @@ as `query` and overall report topic as `parent_query`. You may use
 `quick_search` only for a focused follow-up check.
 2. Preserve every in-text citation and source URL returned by GPT Researcher.""",
     SourceMode.PERSONAL: """1. Call `search_personal_knowledge` with the assigned
-question. If it returns pending, call it again with the same `run_id`.
-2. Preserve the real SpecRAG status, Evidence IDs, specification, release,
+question.
+2. Preserve the real retrieval status, Evidence IDs, specification, release,
 version, headings/clauses, line positions, and excerpts. Never invent missing
 locator data.""",
     SourceMode.MIXED: """1. Call `deep_research` exactly once with the section topic

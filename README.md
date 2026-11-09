@@ -1,34 +1,61 @@
 # Personal Research Assistant
 
-Personal Research Assistant coordinates two independent research sources at the
-agent layer:
+Personal Research Assistant coordinates two independent research sources at
+the Agent layer:
 
 - **GPT Researcher 0.16.0** performs Web research through its public Python API.
-- **SpecRAG** remains an independent HTTP service and is exposed as an ordinary
-  LangChain tool for private, evidence-backed knowledge.
+- **Personal Knowledge** is a slim, embedded retrieval engine migrated from
+  SpecRAG: Release-aware corpus selection, BM25, optional dense retrieval, RRF,
+  clause provenance, and source validation.
 - **Deep Agents 0.7.8** supplies the Chief Editor harness, Researcher subagent,
   Todo management, filesystem tools, and task delegation.
 
-The project does not reimplement GPT Researcher's engine, does not use its
-local/hybrid retriever, and does not turn SpecRAG into MCP.
+The project does not reimplement GPT Researcher's engine or run SpecRAG as a
+separate HTTP service. SpecRAG's frontend, Docker deployment, authentication,
+workspaces, multi-user permissions, memory, context compression, API server,
+and worker lifecycle are intentionally excluded.
 
-## Current architecture
+## Repository layout
+
+The repository follows GPT Researcher's monorepo principle: each top-level
+directory represents a real runtime or product boundary. It does not use a
+generic `src/` container.
+
+```text
+backend/                    # application entry point, settings, runs, outputs
+  research/                 # run orchestration and report validation
+  runtime/                  # model construction
+  storage/                  # isolated run directories
+deep_agents/                # Chief Editor and Researcher team construction
+personal_knowledge/         # embedded private-knowledge retrieval engine
+  infrastructure/           # optional local vector-store adapter
+  retrieval/                # corpus, BM25, dense, RRF, clauses, snapshots
+research_tools/             # Agent-facing Web/personal tools and policies
+docs/                       # architecture decisions
+tests/                      # unit and contract tests
+cli.py                      # repository-level development entry point
+```
+
+There is currently no `frontend/`, `memory/`, `mcp-server/`, or `terraform/`
+directory because the project does not yet implement those capabilities. New
+top-level boundaries should be added only when executable code actually exists.
+See [docs/architecture.md](docs/architecture.md) for the dependency rules and
+the comparison with the GPT Researcher reference repository.
+
+## Runtime flow
 
 ```text
 User query
-    -> Chief Editor (scope, plan, delegate, review, assemble)
-        -> Researcher subagents
-            -> GPT Researcher [web only]
-            -> SpecRAG HTTP Tool [personal only]
+    -> backend
+        -> Chief Editor (scope, plan, delegate, review, assemble)
+            -> Researcher subagents
+                -> GPT Researcher [Web]
+                -> Personal Knowledge Tool [private corpus]
         -> outputs/run_<id>/sections/*.md
         -> outputs/run_<id>/report.md
 ```
 
-The importable package lives directly at `research_assistant/`, mirroring the
-upstream repository's root-level `gpt_researcher/` package. There is no extra
-`src/` nesting.
-
-Source authorization is enforced by code when the agents are constructed:
+Source authorization is enforced in code when the agents are constructed:
 
 | Mode | Chief tools | Researcher tools |
 |---|---|---|
@@ -41,32 +68,36 @@ Source authorization is enforced by code when the agents are constructed:
 - Python 3.12+
 - `uv`
 - Model and search-provider credentials supported by GPT Researcher 0.16.0
-- For `personal` or `mixed`: a running SpecRAG service, workspace ID, and token
+- For `personal` or `mixed`: a local Markdown corpus and compatible index
 
 The repository pins top-level integrations in `pyproject.toml` and the complete
-resolved graph in `uv.lock`. GPT Researcher is pinned to the audited upstream
+resolved graph in `uv.lock`. GPT Researcher is pinned to an audited upstream
 commit because the PyPI 0.16.0 artifact currently fails during import.
 
 ## Setup
 
 ```powershell
-uv sync --extra test
+uv sync --extra personal --extra test
 Copy-Item .env.example .env
 ```
 
-Configure `.env`. At minimum, set the Deep Agents/model-provider values and the
-search provider required by GPT Researcher. `RETRIEVER=duckduckgo` works
-without a separate search key for development; Tavily requires its own key and
-is generally the more production-oriented choice. For private knowledge, also set:
+The `personal` extra installs dense retrieval. Without it, the Personal
+Knowledge Tool remains usable through its verified BM25/RRF fallback and marks
+the result partial when the dense channel is unavailable.
+
+Configure `.env`. `RETRIEVER=duckduckgo` works without a separate search key
+for development; Tavily requires its own key. For private knowledge, set:
 
 ```env
-SPECRAG_BASE_URL=http://127.0.0.1:8000
-SPECRAG_WORKSPACE_ID=your-authorized-workspace
-SPECRAG_ACCESS_TOKEN=your-token
+PERSONAL_KNOWLEDGE_ROOT=personal_knowledge_data
+PERSONAL_KNOWLEDGE_CORPUS_DIR=data/3gpp
+PERSONAL_KNOWLEDGE_INDEX_DIR=.local/indexes/specifications
+PERSONAL_KNOWLEDGE_RELEASE=17
 ```
 
-The SpecRAG token and workspace are application configuration. They are never
-tool arguments and are never placed in agent prompts.
+These paths and the Release are backend configuration, never model-controlled
+Tool arguments. Existing SpecRAG data can be reused by pointing
+`PERSONAL_KNOWLEDGE_ROOT` at its data root; no SpecRAG service needs to run.
 
 ## Run
 
@@ -76,11 +107,14 @@ uv run research-assistant `
   --source-mode web
 ```
 
-During repository development, the equivalent root-level entry point is
-`uv run python cli.py ...`.
+During repository development, the equivalent entry point is:
 
-Available modes are `web`, `personal`, and `mixed`. Each run gets an isolated
-directory under `outputs/` with `run.json`, section drafts, and `report.md`.
+```powershell
+uv run python cli.py --query "..." --source-mode mixed
+```
+
+Each run gets an isolated directory under `outputs/` containing `run.json`,
+section drafts, and `report.md`.
 
 ## Tests
 
@@ -88,15 +122,13 @@ directory under `outputs/` with `run.json`, section drafts, and `report.md`.
 uv run pytest
 ```
 
-The automated suite covers source authorization, evidence normalization, Web
-engine contracts, SpecRAG asynchronous states, polling timeout, errors, prompt
-variants, and run-path isolation. Live Web/SpecRAG acceptance tests require
-real credentials and services and are intentionally separate from unit tests.
+The suite covers source authorization, evidence normalization, upstream Web
+engine contracts, embedded retrieval and source verification, prompts, and
+run-path isolation. Live Web acceptance requires provider credentials.
 
 ## Upstream reference
 
 `gpt-researcher-main/` is a local-only source reference and is excluded by
-`.gitignore`. It is not a runtime dependency and should be removed after the
-implementation/audit work is complete. Provenance and the upstream license
-metadata conflict are recorded in `THIRD_PARTY_NOTICES.md`.
-
+`.gitignore`. It is not a runtime dependency and is retained locally for the
+ongoing implementation audit. Provenance is recorded in
+`THIRD_PARTY_NOTICES.md`.

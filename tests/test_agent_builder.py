@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-import research_assistant.agents.builder as builder
-from research_assistant.config import Settings
-from research_assistant.tools.gpt_researcher import CostTracker
+import deep_agents.builder as builder
+from backend.config import Settings
+from research_tools.gpt_researcher import CostTracker
 
 
 def test_builder_disables_general_purpose_and_keeps_only_researcher(monkeypatch, tmp_path):
