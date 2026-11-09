@@ -88,6 +88,13 @@ the result partial when the dense channel is unavailable.
 Configure `.env`. `RETRIEVER=duckduckgo` works without a separate search key
 for development; Tavily requires its own key. For private knowledge, set:
 
+For OpenAI-compatible third-party gateways, keep
+`DEEP_AGENT_USE_RESPONSES_API=false` unless the gateway implements the OpenAI
+Responses API correctly. `DEEP_AGENT_MAX_OUTPUT_TOKENS` bounds each Chief
+Editor/Researcher model response. The repository-local `.env` is authoritative
+at runtime so stale provider credentials inherited from the launching shell do
+not silently replace the project's configured key.
+
 ```env
 PERSONAL_KNOWLEDGE_ROOT=personal_knowledge_data
 PERSONAL_KNOWLEDGE_CORPUS_DIR=data/3gpp

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     )
 
     deep_agent_model: str = "openai:gpt-5.4"
+    deep_agent_max_output_tokens: int = Field(default=2048, ge=128, le=32768)
+    deep_agent_use_responses_api: bool = False
     outputs_dir: Path = Path("outputs")
     max_parallel_researchers: int = Field(default=3, ge=1, le=16)
     max_revision_rounds: int = Field(default=1, ge=0, le=3)
@@ -49,8 +51,10 @@ class Settings(BaseSettings):
 
 def load_settings() -> Settings:
     # GPT Researcher and model providers read their own configuration directly
-    # from os.environ. Load the shared file before validating app-owned fields.
-    load_dotenv(override=False)
+    # from os.environ. Make the repository-local file authoritative so stale
+    # credentials inherited from the launching shell cannot silently replace
+    # the key the user configured for this project.
+    load_dotenv(override=True)
     return Settings()
 
 

@@ -58,8 +58,13 @@ def build_research_agent(
     guidelines: list[str] | None = None,
 ) -> BuiltResearchAgent:
     mode = coerce_source_mode(source_mode)
-    model = deep_agent_model(settings.deep_agent_model)
-    _disable_general_purpose_subagent(model)
+    model_spec = settings.deep_agent_model.strip()
+    model = deep_agent_model(
+        model_spec,
+        max_output_tokens=settings.deep_agent_max_output_tokens,
+        use_responses_api=settings.deep_agent_use_responses_api,
+    )
+    _disable_general_purpose_subagent(model_spec)
     tool_sets = build_research_tool_sets(settings, mode)
 
     researcher_subagent = {

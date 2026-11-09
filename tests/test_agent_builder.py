@@ -7,6 +7,7 @@ from research_tools.gpt_researcher import CostTracker
 
 def test_builder_disables_general_purpose_and_keeps_only_researcher(monkeypatch, tmp_path):
     captured = {}
+    configured_model = object()
     builder._REGISTERED_PROFILES.clear()
 
     def fake_register(model, profile):
@@ -23,6 +24,14 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(monkeypatch,
     monkeypatch.setattr(builder, "create_deep_agent", fake_create_deep_agent)
     monkeypatch.setattr(
         builder,
+        "deep_agent_model",
+        lambda model_name, **kwargs: (
+            captured.update(model_name=model_name, model_kwargs=kwargs)
+            or configured_model
+        ),
+    )
+    monkeypatch.setattr(
+        builder,
         "build_research_tool_sets",
         lambda settings, mode: SimpleNamespace(
             chief=[chief_tool],
@@ -32,15 +41,25 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(monkeypatch,
     )
 
     built = builder.build_research_agent(
-        Settings(deep_agent_model="openai:test-model"),
+        Settings(
+            deep_agent_model="openai:test-model",
+            deep_agent_max_output_tokens=1024,
+            deep_agent_use_responses_api=False,
+        ),
         source_mode="web",
         run_dir=tmp_path,
     )
 
     assert built.graph == "compiled-graph"
     assert captured["profile_model"] == "openai:test-model"
+    assert captured["model_name"] == "openai:test-model"
+    assert captured["model_kwargs"] == {
+        "max_output_tokens": 1024,
+        "use_responses_api": False,
+    }
     assert captured["profile"].general_purpose_subagent.enabled is False
     kwargs = captured["agent_kwargs"]
+    assert kwargs["model"] is configured_model
     assert kwargs["tools"] == [chief_tool]
     assert [subagent["name"] for subagent in kwargs["subagents"]] == ["researcher"]
     assert kwargs["subagents"][0]["tools"] == [researcher_tool]
