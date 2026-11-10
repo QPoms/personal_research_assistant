@@ -50,6 +50,16 @@ class RunJournal:
         journal.project()
         return journal
 
+    @classmethod
+    def open(cls, database_path: Path, paths: RunPaths) -> "RunJournal":
+        store = SQLiteRuntimeStore(database_path)
+        record = store.get_run(paths.run_id)
+        if record is None:
+            raise LookupError(f"run is not present in runtime ledger: {paths.run_id}")
+        journal = cls(store, paths, record)
+        journal.project()
+        return journal
+
     def transition(
         self,
         event_type: RunEventType,

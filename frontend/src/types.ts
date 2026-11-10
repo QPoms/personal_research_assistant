@@ -22,6 +22,7 @@ export interface RunRecord {
   finished_at: string | null;
   web_research_cost: number;
   report_path: string;
+  guidelines: string[];
   error: string | null;
 }
 

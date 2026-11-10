@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     model_retry_jitter: bool = True
     outputs_dir: Path = Path("outputs")
     runtime_database_path: Path | None = None
+    checkpoint_database_path: Path | None = None
     max_parallel_researchers: int = Field(default=3, ge=1, le=16)
     max_revision_rounds: int = Field(default=1, ge=0, le=3)
     max_search_results: int = Field(default=5, ge=1, le=20)
@@ -71,6 +72,16 @@ class Settings(BaseSettings):
         if self.runtime_database_path is None:
             return self.resolved_outputs_dir() / "runtime.sqlite3"
         path = self.runtime_database_path.expanduser()
+        return (
+            (PROJECT_ROOT / path).resolve()
+            if not path.is_absolute()
+            else path.resolve()
+        )
+
+    def resolved_checkpoint_database_path(self) -> Path:
+        if self.checkpoint_database_path is None:
+            return self.resolved_outputs_dir() / "checkpoints.sqlite3"
+        path = self.checkpoint_database_path.expanduser()
         return (
             (PROJECT_ROOT / path).resolve()
             if not path.is_absolute()

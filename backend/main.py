@@ -10,7 +10,7 @@ import sys
 
 from backend.config import load_settings
 from backend.research.report import validate_report_file
-from backend.research.run_manager import run_research
+from backend.research.run_manager import resume_research, run_research
 from research_tools.source_policy import SourceMode
 
 
@@ -18,7 +18,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run an evidence-grounded research task"
     )
-    parser.add_argument("--query", required=True, help="Research question or topic")
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--query", help="Research question or topic")
+    action.add_argument(
+        "--resume-run",
+        help="Resume an interrupted run from its durable LangGraph checkpoint",
+    )
     parser.add_argument(
         "--source-mode",
         choices=[mode.value for mode in SourceMode],
@@ -43,13 +48,16 @@ def _restart_in_utf8_mode() -> int:
 
 async def _async_main(args: argparse.Namespace) -> int:
     settings = load_settings()
-    result = await run_research(
-        args.query,
-        args.source_mode,
-        settings,
-        guidelines=args.guideline,
-        run_id=args.run_id,
-    )
+    if args.resume_run:
+        result = await resume_research(args.resume_run, settings)
+    else:
+        result = await run_research(
+            args.query,
+            args.source_mode,
+            settings,
+            guidelines=args.guideline,
+            run_id=args.run_id,
+        )
     warnings = validate_report_file(result.report_path)
     print(result.summary)
     print(f"Report: {result.report_path}")

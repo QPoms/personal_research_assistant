@@ -79,6 +79,32 @@ def test_terminal_run_cannot_transition_again():
         )
 
 
+def test_interrupted_run_can_resume_only_at_same_stage():
+    interrupted = transition_run_record(
+        _record(),
+        status=RunStatus.INTERRUPTED,
+        stage=RunStage.BUILDING_AGENT,
+        finished_at=datetime.now(UTC),
+        error="worker stopped",
+    )
+
+    resumed = transition_run_record(
+        interrupted,
+        status=RunStatus.RUNNING,
+        stage=RunStage.BUILDING_AGENT,
+    )
+
+    assert resumed.status is RunStatus.RUNNING
+    assert resumed.finished_at is None
+    assert resumed.error is None
+    with pytest.raises(ValueError, match="checkpointed stage"):
+        transition_run_record(
+            interrupted,
+            status=RunStatus.RUNNING,
+            stage=RunStage.RUNNING_AGENT,
+        )
+
+
 def test_failed_run_requires_error_and_keeps_active_stage():
     record = _record()
 

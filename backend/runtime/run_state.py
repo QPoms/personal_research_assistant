@@ -47,6 +47,7 @@ class RunRecord(BaseModel):
     finished_at: datetime | None = None
     web_research_cost: float = Field(default=0.0, ge=0)
     report_path: str
+    guidelines: tuple[str, ...] = ()
     error: str | None = None
 
     @model_validator(mode="after")
@@ -74,6 +75,22 @@ def transition_run_record(
     error: str | None = None,
 ) -> RunRecord:
     """Create a validated next snapshot without permitting backward transitions."""
+
+    if current.status is RunStatus.INTERRUPTED and status is RunStatus.RUNNING:
+        if stage is not current.stage:
+            raise ValueError("resumed run keeps its checkpointed stage")
+        data = current.model_dump()
+        data.update(
+            {
+                "status": status,
+                "finished_at": None,
+                "web_research_cost": current.web_research_cost
+                if web_research_cost is None
+                else web_research_cost,
+                "error": None,
+            }
+        )
+        return RunRecord.model_validate(data)
 
     if current.status is not RunStatus.RUNNING:
         raise ValueError(f"terminal run cannot transition from {current.status.value}")

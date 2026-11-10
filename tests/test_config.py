@@ -27,6 +27,10 @@ def test_relative_runtime_paths_are_anchored_to_project(monkeypatch, tmp_path):
         settings.resolved_runtime_database_path()
         == tmp_path / "outputs" / "runtime.sqlite3"
     )
+    assert (
+        settings.resolved_checkpoint_database_path()
+        == tmp_path / "outputs" / "checkpoints.sqlite3"
+    )
     assert settings.resolved_personal_knowledge_root() == tmp_path / "knowledge"
 
 
@@ -36,6 +40,18 @@ def test_explicit_runtime_database_path_is_anchored_to_project(monkeypatch, tmp_
 
     assert (
         settings.resolved_runtime_database_path() == tmp_path / "state" / "runtime.db"
+    )
+
+
+def test_explicit_checkpoint_database_path_is_anchored_to_project(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    settings = Settings(checkpoint_database_path="state/checkpoints.db")
+
+    assert (
+        settings.resolved_checkpoint_database_path()
+        == tmp_path / "state" / "checkpoints.db"
     )
 
 

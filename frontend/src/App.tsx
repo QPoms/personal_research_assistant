@@ -27,6 +27,7 @@ const EVENT_LABELS: Record<string, string> = {
   "run.failed": "研究运行失败",
   "run.interrupted": "研究运行中断",
   "run.cancelled": "研究运行取消",
+  "run.resumed": "从断点恢复运行",
   "plan.created": "生成研究计划",
   "task.started": "开始子任务",
   "task.completed": "完成子任务",

@@ -18,6 +18,7 @@ dependencies = [
   # audited upstream commit whose public package version is still 0.16.0.
   "gpt-researcher @ git+https://github.com/assafelovic/gpt-researcher.git@bbb974b9b21a497c170efdf5346d55a1ac8e6d02",
   "httpx==0.28.1",
+  "langgraph-checkpoint-sqlite==3.1.3",
   "pydantic-settings==2.10.1",
   "python-dotenv==1.1.0",
   "uvicorn==0.54.0",

@@ -19,6 +19,13 @@ def test_explicit_argv_does_not_respawn_for_utf8(monkeypatch):
     assert entrypoint.main(["--query", "test"]) == 0
 
 
+def test_parser_accepts_resume_instead_of_new_query():
+    args = entrypoint.build_parser().parse_args(["--resume-run", "run-123"])
+
+    assert args.resume_run == "run-123"
+    assert args.query is None
+
+
 def test_windows_utf8_restart_command_is_synchronous(monkeypatch):
     captured = {}
     monkeypatch.setattr(entrypoint.sys, "executable", "python.exe")

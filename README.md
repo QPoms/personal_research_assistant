@@ -153,6 +153,19 @@ anchored to the repository root. Inside Deep Agents, the same run directory is
 exposed only as virtual `/`; drafts use `/sections/...` and the final report
 uses `/report.md`.
 
+Deep Agents graph state is checkpointed synchronously to
+`outputs/checkpoints.sqlite3`, using the run ID as the LangGraph thread ID. If
+an OS/process interruption leaves a resumable run, continue from the latest
+completed graph superstep instead of restarting its research plan:
+
+```powershell
+uv run research-assistant --resume-run <run-id>
+```
+
+User-requested cancellation and failed/completed runs are terminal and cannot
+be resumed. Checkpoint deserialization runs in strict MsgPack mode without
+pickle fallback.
+
 Callers may pass a run-scoped `CancellationToken` to `run_research`. A requested
 cancel stops the active Deep Agents task, propagates through GPT Researcher and
 the embedded SpecRAG pipeline, interrupts local model retry backoff, and commits

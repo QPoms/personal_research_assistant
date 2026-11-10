@@ -37,6 +37,10 @@ not import another project's complete platform or adopt multi-tenant services.
 9. Tiered context governance and a general Artifact Store are intentionally
    deferred. They will be designed from this project's measured payload sizes,
    retrieval semantics and privacy boundary instead of copied from a platform.
+10. LangGraph state is synchronously checkpointed in a separate local SQLite
+    database. The runtime ledger remains the source of lifecycle truth, while
+    the checkpoint database contains provider-independent graph continuation
+    state keyed by the same run ID.
 
 ## Source links
 

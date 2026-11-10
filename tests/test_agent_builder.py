@@ -25,6 +25,7 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
 
     chief_tool = object()
     researcher_tool = object()
+    checkpointer = object()
     monkeypatch.setattr(builder, "register_harness_profile", fake_register)
     monkeypatch.setattr(builder, "create_deep_agent", fake_create_deep_agent)
     monkeypatch.setattr(
@@ -53,6 +54,7 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
         ),
         source_mode="web",
         run_dir=tmp_path,
+        checkpointer=checkpointer,
     )
 
     assert built.graph == "compiled-graph"
@@ -66,6 +68,7 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
     kwargs = captured["agent_kwargs"]
     assert kwargs["model"] is configured_model
     assert kwargs["tools"] == [chief_tool]
+    assert kwargs["checkpointer"] is checkpointer
     assert [subagent["name"] for subagent in kwargs["subagents"]] == ["researcher"]
     assert kwargs["subagents"][0]["tools"] == [researcher_tool]
     chief_retry = kwargs["middleware"][0]

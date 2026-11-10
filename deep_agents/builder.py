@@ -18,6 +18,7 @@ from deepagents import (
     register_harness_profile,
 )
 from deepagents.backends import FilesystemBackend
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from backend.config import Settings
 from backend.runtime.cancellation import CancellationToken
@@ -59,6 +60,7 @@ def build_research_agent(
     run_dir: Path,
     guidelines: list[str] | None = None,
     cancellation_token: CancellationToken | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> BuiltResearchAgent:
     mode = coerce_source_mode(source_mode)
     model_spec = settings.deep_agent_model.strip()
@@ -95,6 +97,7 @@ def build_research_agent(
         subagents=[researcher_subagent],
         backend=FilesystemBackend(root_dir=str(run_dir), virtual_mode=True),
         middleware=[retry_policy.middleware()],
+        checkpointer=checkpointer,
     )
     return BuiltResearchAgent(
         graph=graph, source_mode=mode, cost_tracker=tool_sets.cost_tracker

@@ -19,7 +19,10 @@ class _Graph:
         self.result = result
         self.before_return = before_return
 
-    async def ainvoke(self, payload):
+        self.invocations = []
+
+    async def ainvoke(self, payload, **kwargs):
+        self.invocations.append((payload, kwargs))
         if self.before_return is not None:
             self.before_return()
         return self.result
@@ -30,12 +33,17 @@ class _BlockingGraph:
         self.started = asyncio.Event()
         self.cleaned_up = asyncio.Event()
 
-    async def ainvoke(self, payload):
+    async def ainvoke(self, payload, **kwargs):
         self.started.set()
         try:
             await asyncio.Future()
         finally:
             self.cleaned_up.set()
+
+
+class _InterruptingGraph:
+    async def ainvoke(self, payload, **kwargs):
+        raise asyncio.CancelledError("process interrupted")
 
 
 def _settings(tmp_path):
@@ -193,3 +201,87 @@ async def test_successful_run_uses_virtual_report_path(monkeypatch, tmp_path):
     assert canonical is not None
     assert canonical.status is RunStatus.COMPLETED
     assert canonical_store.read_events("success") == events
+
+
+@pytest.mark.asyncio
+async def test_interrupted_run_resumes_from_same_checkpoint_thread(
+    monkeypatch, tmp_path
+):
+    run_root = tmp_path / "run_resume-me"
+    resumed_graph = _Graph(
+        {"messages": [{"role": "assistant", "content": "resumed"}]},
+        before_return=lambda: (run_root / "report.md").write_text(
+            "# Report\n\nReferences\n" + "x" * 200, encoding="utf-8"
+        ),
+    )
+    built_agents = iter(
+        [
+            SimpleNamespace(
+                graph=_InterruptingGraph(),
+                cost_tracker=SimpleNamespace(total=0.0),
+            ),
+            SimpleNamespace(
+                graph=resumed_graph,
+                cost_tracker=SimpleNamespace(total=0.25),
+            ),
+        ]
+    )
+    build_calls = []
+
+    def build_agent(*args, **kwargs):
+        build_calls.append(kwargs)
+        return next(built_agents)
+
+    async def checkpoint_exists(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(run_manager, "build_research_agent", build_agent)
+    monkeypatch.setattr(run_manager, "has_checkpoint", checkpoint_exists)
+    settings = _settings(tmp_path)
+
+    with pytest.raises(asyncio.CancelledError, match="process interrupted"):
+        await run_manager.run_research(
+            "topic",
+            "web",
+            settings,
+            run_id="resume-me",
+            guidelines=["Use a concise table."],
+        )
+
+    interrupted = SQLiteRuntimeStore(tmp_path / "runtime.sqlite3").get_run("resume-me")
+    assert interrupted is not None
+    assert interrupted.status is RunStatus.INTERRUPTED
+    assert interrupted.guidelines == ("Use a concise table.",)
+
+    result = await run_manager.resume_research("resume-me", settings)
+
+    assert result.summary == "resumed"
+    assert result.web_research_cost == 0.25
+    payload, invoke_options = resumed_graph.invocations[0]
+    assert payload is None
+    assert invoke_options["config"]["configurable"]["thread_id"] == "resume-me"
+    assert invoke_options["durability"] == "sync"
+    assert build_calls[1]["guidelines"] == ["Use a concise table."]
+    assert build_calls[1]["checkpointer"] is not None
+    events = _events(run_root, "resume-me")
+    assert RunEventType.RUN_INTERRUPTED in [event.event_type for event in events]
+    assert RunEventType.RUN_RESUMED in [event.event_type for event in events]
+    assert events[-1].event_type is RunEventType.RUN_COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_resume_requires_durable_checkpoint(tmp_path):
+    paths = run_manager.create_run_paths(tmp_path, "no-checkpoint")
+    record = run_manager.RunRecord(
+        run_id=paths.run_id,
+        query="topic",
+        source_mode="web",
+        status=run_manager.RunStatus.RUNNING,
+        stage=run_manager.RunStage.BUILDING_AGENT,
+        started_at=run_manager.datetime.now(run_manager.UTC),
+        report_path=str(paths.report),
+    )
+    run_manager.RunJournal.create(tmp_path / "runtime.sqlite3", paths, record)
+
+    with pytest.raises(ValueError, match="no durable LangGraph checkpoint"):
+        await run_manager.resume_research("no-checkpoint", _settings(tmp_path))

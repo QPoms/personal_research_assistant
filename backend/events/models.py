@@ -17,6 +17,7 @@ class RunEventType(StrEnum):
     RUN_FAILED = "run.failed"
     RUN_INTERRUPTED = "run.interrupted"
     RUN_CANCELLED = "run.cancelled"
+    RUN_RESUMED = "run.resumed"
     PLAN_CREATED = "plan.created"
     TASK_STARTED = "task.started"
     TASK_COMPLETED = "task.completed"

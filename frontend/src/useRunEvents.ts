@@ -39,6 +39,7 @@ export function useRunEvents(runId: string | null): RunEventStream {
       "run.failed",
       "run.interrupted",
       "run.cancelled",
+      "run.resumed",
       "plan.created",
       "task.started",
       "task.completed",

@@ -40,3 +40,21 @@ def create_run_paths(outputs_dir: Path, run_id: str | None = None) -> RunPaths:
         report=root / "report.md",
         events=root / "events.jsonl",
     )
+
+
+def load_run_paths(outputs_dir: Path, run_id: str) -> RunPaths:
+    run_id = _safe_run_id(run_id)
+    root = outputs_dir.resolve() / f"run_{run_id}"
+    sections = root / "sections"
+    if not root.is_dir() or not sections.is_dir():
+        raise FileNotFoundError(f"run output directory is unavailable: {run_id}")
+    return RunPaths(
+        run_id=run_id,
+        root=root,
+        sections=sections,
+        report=root / "report.md",
+        events=root / "events.jsonl",
+    )
+
+
+__all__ = ["RunPaths", "create_run_paths", "load_run_paths"]
