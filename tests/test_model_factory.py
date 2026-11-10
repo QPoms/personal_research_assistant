@@ -21,7 +21,11 @@ def test_openai_compatible_model_uses_explicit_protocol(monkeypatch):
     assert result is sentinel
     assert captured == {
         "model_name": "openai:deepseek-v4.1-flash",
-        "kwargs": {"max_tokens": 2048, "use_responses_api": False},
+        "kwargs": {
+            "max_tokens": 2048,
+            "max_retries": 0,
+            "use_responses_api": False,
+        },
     }
 
 
@@ -30,7 +34,9 @@ def test_non_openai_model_does_not_receive_openai_protocol_flag(monkeypatch):
     monkeypatch.setattr(
         model_factory,
         "init_chat_model",
-        lambda model_name, **kwargs: captured.update(model_name=model_name, kwargs=kwargs),
+        lambda model_name, **kwargs: captured.update(
+            model_name=model_name, kwargs=kwargs
+        ),
     )
 
     model_factory.deep_agent_model(
@@ -41,5 +47,5 @@ def test_non_openai_model_does_not_receive_openai_protocol_flag(monkeypatch):
 
     assert captured == {
         "model_name": "anthropic:claude-test",
-        "kwargs": {"max_tokens": 1024},
+        "kwargs": {"max_tokens": 1024, "max_retries": 0},
     }

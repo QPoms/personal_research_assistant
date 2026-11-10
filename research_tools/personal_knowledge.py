@@ -10,6 +10,7 @@ from langchain_core.tools import tool
 
 from backend.config import Settings
 from backend.runtime.model_factory import deep_agent_model
+from backend.runtime.model_retry import retry_policy_from_settings
 from personal_knowledge.config import RetrievalCfg
 from personal_knowledge.research import (
     LangChainStructuredResearchModel,
@@ -51,7 +52,8 @@ def build_personal_knowledge_tool(settings: Settings):
                 model_name,
                 max_output_tokens=settings.personal_knowledge_model_max_output_tokens,
                 use_responses_api=settings.deep_agent_use_responses_api,
-            )
+            ),
+            retry_policy=retry_policy_from_settings(settings),
         )
         service: Any = LocalResearchPipeline(
             core,

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from langchain_core.language_models import BaseChatModel
+
+from backend.runtime.model_retry import ModelRetryPolicy, is_retryable_model_error
 
 
 class StructuredResearchModel(Protocol):
@@ -48,13 +52,22 @@ def _parse_json_object(text: str) -> dict[str, Any]:
 class LangChainStructuredResearchModel:
     """Use one preconfigured chat model for bounded JSON-only decisions."""
 
-    def __init__(self, model: BaseChatModel) -> None:
+    def __init__(
+        self,
+        model: BaseChatModel,
+        *,
+        retry_policy: ModelRetryPolicy | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._model = model
+        self._retry_policy = retry_policy or ModelRetryPolicy()
+        self._sleep = sleep
 
     def complete_json(self, prompt: str) -> dict[str, Any]:
         last_error: Exception | None = None
         diagnostics: list[str] = []
-        for attempt in range(2):
+        attempts = self._retry_policy.max_retries + 1
+        for attempt in range(attempts):
             request = prompt
             if attempt:
                 request += (
@@ -62,7 +75,16 @@ class LangChainStructuredResearchModel:
                     "Return the requested JSON object now, with no analysis, "
                     "Markdown, or surrounding prose."
                 )
-            response = self._model.invoke(request)
+            try:
+                response = self._model.invoke(request)
+            except Exception as exc:
+                if (
+                    not is_retryable_model_error(exc)
+                    or attempt >= self._retry_policy.max_retries
+                ):
+                    raise
+                self._sleep(self._retry_policy.delay_seconds(attempt))
+                continue
             candidates = [("content", _message_text(response.content))]
             reasoning = response.additional_kwargs.get("reasoning_content")
             if isinstance(reasoning, str):
@@ -78,6 +100,8 @@ class LangChainStructuredResearchModel:
                     last_error = exc
                     preview = text.strip().replace("\n", " ")[:240]
                     diagnostics.append(f"attempt {attempt + 1} {source}: {preview!r}")
+            if attempt < self._retry_policy.max_retries:
+                self._sleep(self._retry_policy.delay_seconds(attempt))
         detail = "; ".join(diagnostics) or "no response diagnostics"
         raise ValueError(
             "model response did not contain a JSON object; " + detail

@@ -101,6 +101,15 @@ Editor/Researcher model response. The repository-local `.env` is authoritative
 at runtime so stale provider credentials inherited from the launching shell do
 not silently replace the project's configured key.
 
+Model calls use one application-owned retry budget shared by Deep Agents and
+embedded Personal Knowledge research. The default is five retries after the
+initial request, with exponential backoff and jitter. Only transient failures
+(429, 5xx, connection and timeout errors) are retried; permanent authentication,
+permission, model-name, and request errors fail immediately. Provider-SDK
+retries are disabled so retry layers cannot multiply attempts. Empty or malformed
+JSON responses from the local Planner/Researcher/Synthesizer consume the same
+five-retry budget. This policy does not change request timeout configuration.
+
 ```env
 PERSONAL_KNOWLEDGE_ROOT=personal_knowledge_data
 PERSONAL_KNOWLEDGE_CORPUS_DIR=data/3gpp

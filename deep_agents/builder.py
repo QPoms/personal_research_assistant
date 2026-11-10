@@ -21,6 +21,7 @@ from deepagents.backends import FilesystemBackend
 
 from backend.config import Settings
 from backend.runtime.model_factory import deep_agent_model
+from backend.runtime.model_retry import retry_policy_from_settings
 from deep_agents.prompts import build_chief_prompt, build_researcher_prompt
 from research_tools.factory import build_research_tool_sets
 from research_tools.gpt_researcher import CostTracker
@@ -66,6 +67,7 @@ def build_research_agent(
     )
     _disable_general_purpose_subagent(model_spec)
     tool_sets = build_research_tool_sets(settings, mode)
+    retry_policy = retry_policy_from_settings(settings)
 
     researcher_subagent = {
         "name": "researcher",
@@ -75,6 +77,7 @@ def build_research_agent(
         ),
         "system_prompt": build_researcher_prompt(mode),
         "tools": tool_sets.researcher,
+        "middleware": [retry_policy.middleware()],
     }
 
     graph = create_deep_agent(
@@ -87,7 +90,8 @@ def build_research_agent(
         ),
         subagents=[researcher_subagent],
         backend=FilesystemBackend(root_dir=str(run_dir), virtual_mode=True),
+        middleware=[retry_policy.middleware()],
     )
-    return BuiltResearchAgent(graph=graph, source_mode=mode, cost_tracker=tool_sets.cost_tracker)
-
-
+    return BuiltResearchAgent(
+        graph=graph, source_mode=mode, cost_tracker=tool_sets.cost_tracker
+    )

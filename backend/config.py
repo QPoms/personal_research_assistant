@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     deep_agent_model: str = "openai:gpt-5.4"
     deep_agent_max_output_tokens: int = Field(default=2048, ge=128, le=32768)
     deep_agent_use_responses_api: bool = False
+    model_max_retries: int = Field(default=5, ge=0, le=10)
+    model_retry_initial_delay_seconds: float = Field(default=2.0, ge=0, le=60)
+    model_retry_backoff_factor: float = Field(default=2.0, ge=1, le=10)
+    model_retry_max_delay_seconds: float = Field(default=30.0, ge=0, le=300)
+    model_retry_jitter: bool = True
     outputs_dir: Path = Path("outputs")
     max_parallel_researchers: int = Field(default=3, ge=1, le=16)
     max_revision_rounds: int = Field(default=1, ge=0, le=3)

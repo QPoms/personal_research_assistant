@@ -22,9 +22,12 @@ def deep_agent_model(
     if not value:
         raise ValueError("DEEP_AGENT_MODEL must not be empty")
 
-    model_kwargs: dict[str, object] = {"max_tokens": max_output_tokens}
+    # The application owns one exact retry budget. Disable provider-SDK retries
+    # so middleware and structured local research cannot multiply hidden attempts.
+    model_kwargs: dict[str, object] = {
+        "max_tokens": max_output_tokens,
+        "max_retries": 0,
+    }
     if value.partition(":")[0].lower() == "openai":
         model_kwargs["use_responses_api"] = use_responses_api
     return init_chat_model(value, **model_kwargs)
-
-

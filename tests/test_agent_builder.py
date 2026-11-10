@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
 import deep_agents.builder as builder
+import pytest
+from langchain.agents.middleware import ModelRetryMiddleware
+
 from backend.config import Settings
 from research_tools.gpt_researcher import CostTracker
-import pytest
 
 
 def test_builder_disables_general_purpose_and_keeps_only_researcher(
@@ -66,6 +68,13 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
     assert kwargs["tools"] == [chief_tool]
     assert [subagent["name"] for subagent in kwargs["subagents"]] == ["researcher"]
     assert kwargs["subagents"][0]["tools"] == [researcher_tool]
+    chief_retry = kwargs["middleware"][0]
+    researcher_retry = kwargs["subagents"][0]["middleware"][0]
+    assert isinstance(chief_retry, ModelRetryMiddleware)
+    assert isinstance(researcher_retry, ModelRetryMiddleware)
+    assert chief_retry is not researcher_retry
+    assert chief_retry.max_retries == researcher_retry.max_retries == 5
+    assert chief_retry.on_failure == researcher_retry.on_failure == "error"
     assert "write_todos" in kwargs["system_prompt"]
     backend = kwargs["backend"]
     assert backend.virtual_mode is True
