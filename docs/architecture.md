@@ -43,7 +43,8 @@ personal_knowledge
 Responsibilities:
 
 - `backend/` owns application configuration, command-line/API composition,
-  run lifecycle, output paths, and report validation.
+  the SQLite runtime ledger, replayable SSE, run lifecycle, output paths, and
+  report validation.
 - `deep_agents/` owns Chief Editor and Researcher prompts and construction. It
   uses Deep Agents' native Todo, filesystem, and subagent mechanisms.
 - `research_tools/` is the anti-corruption layer around external engines. It

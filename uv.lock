@@ -2951,10 +2951,12 @@ source = { editable = "." }
 dependencies = [
     { name = "ddgs" },
     { name = "deepagents" },
+    { name = "fastapi" },
     { name = "gpt-researcher" },
     { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -2973,6 +2975,7 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'personal'", specifier = "==1.5.9" },
     { name = "ddgs", specifier = "==9.16.1" },
     { name = "deepagents", specifier = "==0.7.8" },
+    { name = "fastapi", specifier = "==0.162.2" },
     { name = "gpt-researcher", git = "https://github.com/assafelovic/gpt-researcher.git?rev=bbb974b9b21a497c170efdf5346d55a1ac8e6d02" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "pydantic-settings", specifier = "==2.10.1" },
@@ -2981,6 +2984,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = "==1.1.0" },
     { name = "sentence-transformers", marker = "extra == 'personal'", specifier = "==6.1.0" },
     { name = "tokenizers", marker = "extra == 'personal'", specifier = "==0.22.2" },
+    { name = "uvicorn", specifier = "==0.54.0" },
 ]
 provides-extras = ["personal", "test"]
 

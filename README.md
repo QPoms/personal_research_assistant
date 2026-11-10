@@ -24,6 +24,7 @@ generic `src/` container.
 
 ```text
 backend/                    # application entry point, settings, runs, outputs
+  api/                      # FastAPI run snapshots and replayable SSE
   research/                 # run orchestration and report validation
   runtime/                  # model construction
   storage/                  # isolated run directories
@@ -156,6 +157,12 @@ Callers may pass a run-scoped `CancellationToken` to `run_research`. A requested
 cancel stops the active Deep Agents task, propagates through GPT Researcher and
 the embedded SpecRAG pipeline, interrupts local model retry backoff, and commits
 the terminal `cancelled` snapshot together with a `run.cancelled` event.
+
+Start the local API with `uv run research-assistant-api`. Run snapshots are
+available at `GET /api/v1/runs/{run_id}`. The event endpoint
+`GET /api/v1/runs/{run_id}/events` first replays SQLite history and then tails
+new events. Clients resume with `after_seq` or the SSE `Last-Event-ID` header;
+the durable per-run sequence is used as the SSE event ID.
 
 ## Tests
 
