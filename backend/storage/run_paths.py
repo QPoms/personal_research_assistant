@@ -15,6 +15,7 @@ class RunPaths:
     root: Path
     sections: Path
     report: Path
+    events: Path
 
 
 def _safe_run_id(run_id: str) -> str:
@@ -32,6 +33,10 @@ def create_run_paths(outputs_dir: Path, run_id: str | None = None) -> RunPaths:
     root = outputs_dir.resolve() / f"run_{run_id}"
     sections = root / "sections"
     sections.mkdir(parents=True, exist_ok=False)
-    return RunPaths(run_id=run_id, root=root, sections=sections, report=root / "report.md")
-
-
+    return RunPaths(
+        run_id=run_id,
+        root=root,
+        sections=sections,
+        report=root / "report.md",
+        events=root / "events.jsonl",
+    )

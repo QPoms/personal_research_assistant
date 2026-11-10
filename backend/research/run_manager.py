@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.config import Settings
+from backend.events import JsonlRunEventStore, RunEventType
 from backend.storage.run_paths import RunPaths, create_run_paths
 from deep_agents.builder import build_research_agent
 from deep_agents.paths import VIRTUAL_REPORT_PATH
@@ -68,6 +69,44 @@ def _write_metadata(
     (paths.root / "run.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
+    )
+
+
+def _record_run_state(
+    events: JsonlRunEventStore,
+    event_type: RunEventType,
+    paths: RunPaths,
+    *,
+    query: str,
+    source_mode: SourceMode,
+    started_at: datetime,
+    finished_at: datetime | None = None,
+    status: str,
+    stage: str,
+    web_research_cost: float = 0.0,
+    error: str | None = None,
+) -> None:
+    payload: dict[str, Any] = {"web_research_cost": web_research_cost}
+    if event_type is RunEventType.RUN_CREATED:
+        payload.update({"query": query, "source_mode": source_mode.value})
+    if error:
+        payload["error"] = error
+    events.append(
+        event_type,
+        status=status,
+        stage=stage,
+        payload=payload,
+    )
+    _write_metadata(
+        paths,
+        query=query,
+        source_mode=source_mode,
+        started_at=started_at,
+        finished_at=finished_at,
+        status=status,
+        stage=stage,
+        web_research_cost=web_research_cost,
+        error=error,
     )
 
 
@@ -137,8 +176,11 @@ async def run_research(
         settings.validate_for_personal_research()
 
     paths = create_run_paths(settings.resolved_outputs_dir(), run_id)
+    events = JsonlRunEventStore(paths.events, paths.run_id)
     started_at = datetime.now(UTC)
-    _write_metadata(
+    _record_run_state(
+        events,
+        RunEventType.RUN_CREATED,
         paths,
         query=query,
         source_mode=mode,
@@ -164,7 +206,9 @@ async def run_research(
             guidelines=guidelines,
         )
         stage = "running_agent"
-        _write_metadata(
+        _record_run_state(
+            events,
+            RunEventType.RUN_STAGE_CHANGED,
             paths,
             query=query,
             source_mode=mode,
@@ -177,7 +221,9 @@ async def run_research(
         )
         _write_agent_trace(paths, result)
         stage = "validating_report"
-        _write_metadata(
+        _record_run_state(
+            events,
+            RunEventType.RUN_STAGE_CHANGED,
             paths,
             query=query,
             source_mode=mode,
@@ -196,7 +242,9 @@ async def run_research(
             )
         finished_at = datetime.now(UTC)
         summary = _last_message_text(result)
-        _write_metadata(
+        _record_run_state(
+            events,
+            RunEventType.RUN_COMPLETED,
             paths,
             query=query,
             source_mode=mode,
@@ -216,7 +264,9 @@ async def run_research(
         )
     except (KeyboardInterrupt, asyncio.CancelledError) as exc:
         web_cost = built.cost_tracker.total if built else 0.0
-        _write_metadata(
+        _record_run_state(
+            events,
+            RunEventType.RUN_INTERRUPTED,
             paths,
             query=query,
             source_mode=mode,
@@ -230,7 +280,9 @@ async def run_research(
         raise
     except Exception as exc:
         web_cost = built.cost_tracker.total if built else 0.0
-        _write_metadata(
+        _record_run_state(
+            events,
+            RunEventType.RUN_FAILED,
             paths,
             query=query,
             source_mode=mode,

@@ -7,6 +7,7 @@ import pytest
 
 import backend.research.run_manager as run_manager
 from backend.config import Settings
+from backend.events import JsonlRunEventStore, RunEventType
 
 
 class _Graph:
@@ -22,6 +23,10 @@ class _Graph:
 
 def _settings(tmp_path):
     return Settings(outputs_dir=tmp_path)
+
+
+def _events(root, run_id):
+    return JsonlRunEventStore(root / "events.jsonl", run_id).read()
 
 
 @pytest.mark.asyncio
@@ -44,6 +49,12 @@ async def test_agent_build_failure_transitions_run_to_failed(monkeypatch, tmp_pa
     assert metadata["stage"] == "building_agent"
     assert metadata["finished_at"] is not None
     assert metadata["error"] == "RuntimeError: build failed"
+    events = _events(tmp_path / "run_build-failure", "build-failure")
+    assert [event.event_type for event in events] == [
+        RunEventType.RUN_CREATED,
+        RunEventType.RUN_FAILED,
+    ]
+    assert [event.seq for event in events] == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -78,6 +89,9 @@ async def test_missing_report_writes_agent_trace_and_final_summary(
     assert metadata["status"] == "failed"
     assert metadata["stage"] == "validating_report"
     assert "last message" in metadata["error"]
+    events = _events(root, "missing-report")
+    assert events[-1].event_type is RunEventType.RUN_FAILED
+    assert events[-1].stage == "validating_report"
 
 
 @pytest.mark.asyncio
@@ -106,3 +120,11 @@ async def test_successful_run_uses_virtual_report_path(monkeypatch, tmp_path):
     metadata = json.loads((run_root / "run.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "completed"
     assert metadata["stage"] == "completed"
+    events = _events(run_root, "success")
+    assert [event.event_type for event in events] == [
+        RunEventType.RUN_CREATED,
+        RunEventType.RUN_STAGE_CHANGED,
+        RunEventType.RUN_STAGE_CHANGED,
+        RunEventType.RUN_COMPLETED,
+    ]
+    assert [event.seq for event in events] == [1, 2, 3, 4]

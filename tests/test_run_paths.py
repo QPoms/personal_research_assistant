@@ -8,6 +8,7 @@ def test_create_isolated_run_paths(tmp_path):
     assert paths.root == tmp_path.resolve() / "run_run-123"
     assert paths.sections.is_dir()
     assert paths.report == paths.root / "report.md"
+    assert paths.events == paths.root / "events.jsonl"
 
 
 @pytest.mark.parametrize("unsafe", ["../escape", "a/b", "a\\b", "", " space"])
