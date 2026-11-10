@@ -21,9 +21,11 @@ from backend.runtime.checkpoints import (
     has_checkpoint,
     open_checkpoint_saver,
 )
+from backend.runtime.context_management import ContextCompactionNotice
 from backend.runtime.run_journal import RunJournal
 from backend.runtime.run_state import RunRecord, RunStage, RunStatus
 from backend.storage.run_paths import RunPaths, create_run_paths, load_run_paths
+from backend.runtime.working_memory import initial_working_memory
 from deep_agents.builder import build_research_agent
 from deep_agents.paths import VIRTUAL_REPORT_PATH
 from research_tools.source_policy import SourceMode, coerce_source_mode
@@ -103,6 +105,29 @@ def _write_agent_trace(paths: RunPaths, result: Any) -> None:
         encoding="utf-8",
     )
 
+    if isinstance(result, dict) and isinstance(result.get("working_memory"), dict):
+        (paths.root / "working-memory.json").write_text(
+            json.dumps(
+                result["working_memory"], ensure_ascii=False, indent=2, default=str
+            ),
+            encoding="utf-8",
+        )
+
+
+def _record_context_compaction(
+    journal: RunJournal, notice: ContextCompactionNotice
+) -> None:
+    record = journal.store.get_run(journal.record.run_id)
+    if record is None or record.status is not RunStatus.RUNNING:
+        return
+    journal.store.commit(
+        record,
+        RunEventType.CONTEXT_COMPACTED,
+        source="context_manager",
+        agent=notice.agent,
+        payload=notice.payload(),
+    )
+
 
 def _user_request(record: RunRecord) -> str:
     return (
@@ -135,6 +160,10 @@ async def _execute_research(
                 guidelines=list(journal.record.guidelines),
                 cancellation_token=token,
                 checkpointer=checkpointer,
+                context_event_callback=lambda notice: _record_context_compaction(
+                    journal, notice
+                ),
+                run_id=paths.run_id,
             )
             if journal.record.stage is RunStage.BUILDING_AGENT:
                 journal.transition(
@@ -264,7 +293,8 @@ async def run_research(
         mode,
         token,
         graph_input={
-            "messages": [{"role": "user", "content": _user_request(journal.record)}]
+            "messages": [{"role": "user", "content": _user_request(journal.record)}],
+            "working_memory": initial_working_memory(journal.record.query),
         },
     )
 

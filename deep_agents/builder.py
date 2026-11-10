@@ -7,6 +7,7 @@ authorized research tools and the explicit Researcher profile.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,12 +19,19 @@ from deepagents import (
     register_harness_profile,
 )
 from deepagents.backends import FilesystemBackend
+from langchain.agents.middleware import TodoListMiddleware
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from backend.config import Settings
+from backend.memory.middleware import build_long_term_memory_middleware
 from backend.runtime.cancellation import CancellationToken
+from backend.runtime.context_management import (
+    ContextCompactionNotice,
+    build_context_middleware_stack,
+)
 from backend.runtime.model_factory import deep_agent_model
 from backend.runtime.model_retry import retry_policy_from_settings
+from backend.runtime.working_memory import WorkingMemoryMiddleware
 from deep_agents.prompts import build_chief_prompt, build_researcher_prompt
 from research_tools.factory import build_research_tool_sets
 from research_tools.gpt_researcher import CostTracker
@@ -61,6 +69,8 @@ def build_research_agent(
     guidelines: list[str] | None = None,
     cancellation_token: CancellationToken | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
+    context_event_callback: Callable[[ContextCompactionNotice], None] | None = None,
+    run_id: str | None = None,
 ) -> BuiltResearchAgent:
     mode = coerce_source_mode(source_mode)
     model_spec = settings.deep_agent_model.strip()
@@ -74,6 +84,31 @@ def build_research_agent(
         settings, mode, cancellation_token=cancellation_token
     )
     retry_policy = retry_policy_from_settings(settings)
+    backend = FilesystemBackend(root_dir=str(run_dir), virtual_mode=True)
+    researcher_context = build_context_middleware_stack(
+        settings,
+        model,
+        backend,
+        agent="researcher",
+        on_compaction=context_event_callback,
+    )
+    chief_context = build_context_middleware_stack(
+        settings,
+        model,
+        backend,
+        agent="chief",
+        on_compaction=context_event_callback,
+    )
+    chief_memory = (
+        [
+            build_long_term_memory_middleware(
+                settings,
+                source_run_id=run_id,
+            )
+        ]
+        if settings.long_term_memory_enabled
+        else []
+    )
 
     researcher_subagent = {
         "name": "researcher",
@@ -83,7 +118,7 @@ def build_research_agent(
         ),
         "system_prompt": build_researcher_prompt(mode),
         "tools": tool_sets.researcher,
-        "middleware": [retry_policy.middleware()],
+        "middleware": [*researcher_context, retry_policy.middleware()],
     }
 
     graph = create_deep_agent(
@@ -95,8 +130,14 @@ def build_research_agent(
             guidelines=guidelines,
         ),
         subagents=[researcher_subagent],
-        backend=FilesystemBackend(root_dir=str(run_dir), virtual_mode=True),
-        middleware=[retry_policy.middleware()],
+        backend=backend,
+        middleware=[
+            *chief_context,
+            TodoListMiddleware(system_prompt=""),
+            WorkingMemoryMiddleware(),
+            *chief_memory,
+            retry_policy.middleware(),
+        ],
         checkpointer=checkpointer,
     )
     return BuiltResearchAgent(

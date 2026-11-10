@@ -15,6 +15,9 @@ def test_personal_chief_delegates_instead_of_running_local_pipeline():
     assert "/sections/<two-digit-index>-<slug>.md" in prompt
     assert "write `/report.md`" in prompt
     assert "never prepend a host path" in prompt
+    assert "update_working_memory" in prompt
+    assert "recall_long_term_memory" in prompt
+    assert "never citable evidence" in prompt
 
 
 def test_web_prompt_forbids_personal_scope_for_chief():

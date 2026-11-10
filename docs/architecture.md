@@ -24,6 +24,7 @@ same principle at its current, smaller scope.
 
 ```text
 backend
+  -> personal_knowledge.retrieval lexical tokenizer
   -> deep_agents
   -> research_tools
 
@@ -44,12 +45,14 @@ Responsibilities:
 
 - `backend/` owns application configuration, command-line/API composition,
   the SQLite runtime ledger, replayable SSE, run lifecycle, local worker
-  supervision, output paths, and report validation.
+  supervision, context governance, cross-session memory, output paths, and
+  report validation.
 - `frontend/` owns the independently buildable local React runtime console. It
   reads durable snapshots/events and issues resume and cancel commands;
   it does not own run state.
 - `deep_agents/` owns Chief Editor and Researcher prompts and construction. It
-  uses Deep Agents' native Todo, filesystem, and subagent mechanisms.
+  composes Deep Agents' filesystem, summarization and subagent mechanisms with
+  application-owned Todo, working-memory and long-term-memory middleware.
 - `research_tools/` is the anti-corruption layer around external engines. It
   enforces `web`, `personal`, and `mixed` authorization and normalizes evidence.
 - `personal_knowledge/retrieval/` is a reusable, framework-independent retrieval
@@ -70,11 +73,11 @@ The two reference `memory` directories have different and narrower meanings:
   under either `memory/` directory.
 - Report/chat persistence is handled separately by backend storage code.
 
-This project therefore does not create a `memory/` directory yet. The embedded
-private corpus and its indexes are knowledge retrieval, not Agent memory. If a
-future requirement introduces durable conversation or user memory, it should
-be designed as its own backend capability with an explicit retention and
-privacy model.
+This project now keeps those meanings separate. Run-scoped working memory is a
+small private LangGraph state checkpoint. Cross-session memory is deliberate,
+source-aware Markdown under the ignored `memory/` data directory, recalled
+with bounded BM25 Top-K. Private corpus indexes remain knowledge retrieval and
+are never silently promoted into long-term Agent memory.
 
 ## Rules for future folders
 
@@ -90,7 +93,7 @@ privacy model.
 
 ## Path boundaries
 
-The runtime has three deliberately separate path namespaces:
+The runtime has four deliberately separate path namespaces:
 
 - Project paths: `.env` and relative `OUTPUTS_DIR` values are anchored to the
   repository root, not the shell's current working directory.
@@ -101,6 +104,9 @@ The runtime has three deliberately separate path namespaces:
   repository (currently `F:\specrag`). Corpus, index, and evidence source paths
   must resolve beneath that root. These host paths are never exposed as Agent
   filesystem paths.
+- Long-term memory paths: `LONG_TERM_MEMORY_DIR` is application-owned and never
+  exposed through the run-scoped Agent filesystem. Chief accesses it only
+  through bounded recall/save tools with credential rejection.
 
 Every run writes lifecycle state to `run.json`. Once the Agent returns, a
 bounded `agent-trace.json` records message roles, tool calls, truncated tool

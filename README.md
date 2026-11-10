@@ -9,12 +9,14 @@ the Agent layer:
   retrieval, RRF, source validation, cross-task evidence merging, and a
   grounded local brief for the Chief Editor.
 - **Deep Agents 0.7.8** supplies the Chief Editor harness, Researcher subagent,
-  Todo management, filesystem tools, and task delegation.
+  filesystem, summarization, and task delegation; the application restores
+  LangChain Todo planning and adds bounded working/long-term memory.
 
 The project does not reimplement GPT Researcher's engine or run SpecRAG as a
 separate HTTP service. SpecRAG's frontend, Docker deployment, authentication,
-workspaces, multi-user permissions, memory, context compression, API server,
-and worker lifecycle are intentionally excluded.
+workspaces, multi-user permissions, API server, and worker lifecycle remain
+excluded. Context management and memory are application-owned capabilities
+built on Deep Agents rather than copied from SpecRAG.
 
 ## Repository layout
 
@@ -25,8 +27,9 @@ generic `src/` container.
 ```text
 backend/                    # application entry point, settings, runs, outputs
   api/                      # FastAPI run control, snapshots and replayable SSE
+  memory/                   # Markdown long-term memory and BM25 recall
   research/                 # run orchestration and report validation
-  runtime/                  # model construction, checkpoints, worker supervisor
+  runtime/                  # models, context/working memory, checkpoints, workers
   storage/                  # isolated run directories and SQLite runtime ledger
 deep_agents/                # Chief Editor and Researcher team construction
 frontend/                   # local React runtime console
@@ -40,9 +43,10 @@ tests/                      # unit and contract tests
 cli.py                      # repository-level development entry point
 ```
 
-There is currently no `memory/`, `mcp-server/`, or `terraform/` directory
-because the project does not implement those capabilities. New top-level
-boundaries should be added only when executable code actually exists.
+There is currently no `mcp-server/` or `terraform/` directory because the
+project does not implement those capabilities. Runtime Markdown memory is
+stored in the ignored `memory/` data directory; its implementation belongs to
+`backend/memory/`.
 See [docs/architecture.md](docs/architecture.md) for the dependency rules and
 the comparison with the GPT Researcher reference repository.
 
@@ -154,6 +158,35 @@ anchored to the repository root. Inside Deep Agents, the same run directory is
 exposed only as virtual `/`; drafts use `/sections/...` and the final report
 uses `/report.md`.
 
+## Context and memory
+
+Deep Agents' native filesystem, subagent, and summarization middleware remain
+the foundation. Chief and Researcher contexts are isolated. Tool results above
+Deep Agents' eviction threshold are written beneath each run's
+`/large_tool_results/`, while summarized history is appended beneath
+`/conversation_history/` and can be paged back with `read_file`.
+
+The application replaces the model-profile default compaction threshold with a
+predictable 100,000-token threshold, keeps the latest 12 messages, and bounds
+the history sent to the summarizer. Automatic and manual
+`compact_conversation` operations use the same state. Each automatic
+compaction emits `context.compacted` with bounded counts and the history path;
+raw history remains in durable graph state for audit and resume.
+
+Chief working state is separate from chat history. `write_todos` tracks the
+plan, while `update_working_memory` checkpoints only the objective, focus,
+selected Evidence IDs, open questions, decisions, and artifact paths. Raw
+documents, report drafts, long tool output, and credentials do not belong in
+working memory.
+
+Cross-session memory is stored as human-readable Markdown under `memory/`.
+The Chief recalls a bounded Top-K with BM25 through
+`recall_long_term_memory`; nothing is preloaded wholesale into the system
+prompt. `save_long_term_memory` accepts only compact preferences, decisions,
+procedures, and verified findings. Findings require source references, memory
+is explicitly non-citable until reverified, malformed entries are isolated,
+and credential-like values are rejected.
+
 Deep Agents graph state is checkpointed synchronously to
 `outputs/checkpoints.sqlite3`, using the run ID as the LangGraph thread ID. If
 an OS/process interruption leaves a resumable run, continue from the latest
@@ -211,8 +244,9 @@ uv run pytest
 
 The suite covers source authorization, evidence normalization, upstream Web
 engine contracts, embedded retrieval and source verification, prompts,
-run-path isolation, checkpoints, worker leases, cancellation, Watchdog recovery,
-and HTTP/SSE runtime control. Live Web acceptance requires provider credentials.
+run-path isolation, context compaction/offload, working and long-term memory,
+checkpoints, worker leases, cancellation, Watchdog recovery, and HTTP/SSE
+runtime control. Live Web acceptance requires provider credentials.
 
 ## Upstream reference
 

@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     deep_agent_model: str = "openai:gpt-5.4"
     deep_agent_max_output_tokens: int = Field(default=2048, ge=128, le=32768)
     deep_agent_use_responses_api: bool = False
+    context_summarization_trigger_tokens: int = Field(
+        default=100_000, ge=10_000, le=1_000_000
+    )
+    context_summarization_keep_messages: int = Field(default=12, ge=4, le=100)
+    context_summary_input_tokens: int = Field(default=12_000, ge=2_000, le=100_000)
+    long_term_memory_enabled: bool = True
+    long_term_memory_dir: Path = Path("memory")
+    long_term_memory_max_results: int = Field(default=5, ge=1, le=10)
+    long_term_memory_excerpt_chars: int = Field(default=1600, ge=200, le=5000)
     model_max_retries: int = Field(default=5, ge=0, le=10)
     model_retry_initial_delay_seconds: float = Field(default=2.0, ge=0, le=60)
     model_retry_backoff_factor: float = Field(default=2.0, ge=1, le=10)
@@ -62,6 +71,14 @@ class Settings(BaseSettings):
 
     def resolved_outputs_dir(self) -> Path:
         path = self.outputs_dir.expanduser()
+        return (
+            (PROJECT_ROOT / path).resolve()
+            if not path.is_absolute()
+            else path.resolve()
+        )
+
+    def resolved_long_term_memory_dir(self) -> Path:
+        path = self.long_term_memory_dir.expanduser()
         return (
             (PROJECT_ROOT / path).resolve()
             if not path.is_absolute()

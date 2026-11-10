@@ -12,7 +12,7 @@ not import another project's complete platform or adopt multi-tenant services.
 | Durable graph state and resume | LangGraph persistence and interrupts | Checkpoint boundaries, thread/run identity, replayable state | Hosted LangGraph platform and Postgres |
 | Agent runtime events | OpenHands EventStream | Typed events, Action/Observation correlation, append-only history | Sandbox runtime and recursive coding-agent delegation |
 | Workflow execution layers | Dify workflow engine | Separate domain events, persistence projection, command/cancel channel | Celery, Redis Pub/Sub, tenancy and plugin platform |
-| Context tiers | Letta memory architecture | Small in-context state plus out-of-context, on-demand artifacts | User/persona memory and autonomous long-term learning |
+| Context tiers | Letta memory architecture | Small checkpointed working state, out-of-context history/tool results, bounded Markdown recall | Autonomous memory extraction and user-profile learning |
 | LLM observability and evaluation | Arize Phoenix/OpenInference | OpenTelemetry-compatible traces and later retrieval evaluations | Bundling an observability server into the core runtime |
 | Lightweight research UI | GPT Researcher | Research progress presentation and basic streaming UI | Its connection-scoped WebSocket protocol, which has no durable replay cursor |
 
@@ -34,9 +34,12 @@ not import another project's complete platform or adopt multi-tenant services.
 8. Cancellation is a run-scoped cooperative signal. Async graph execution is
    actively cancelled, while synchronous local-research threads check the same
    token at model, retrieval, merge and synthesis boundaries.
-9. Tiered context governance and a general Artifact Store are intentionally
-   deferred. They will be designed from this project's measured payload sizes,
-   retrieval semantics and privacy boundary instead of copied from a platform.
+9. Tiered context governance reuses Deep Agents' native history summarization,
+   large-result eviction, per-run filesystem and subagent isolation. The
+   application supplies predictable thresholds, structured working state,
+   compaction events and bounded Markdown/BM25 cross-session recall. A separate
+   general-purpose Artifact Store remains unnecessary until domain artifacts
+   require lifecycle features beyond the run filesystem.
 10. LangGraph state is synchronously checkpointed in a separate local SQLite
     database. The runtime ledger remains the source of lifecycle truth, while
     the checkpoint database contains provider-independent graph continuation

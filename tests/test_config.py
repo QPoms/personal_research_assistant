@@ -20,6 +20,7 @@ def test_relative_runtime_paths_are_anchored_to_project(monkeypatch, tmp_path):
     settings = Settings(
         outputs_dir="outputs",
         personal_knowledge_root="knowledge",
+        long_term_memory_dir="memory",
     )
 
     assert settings.resolved_outputs_dir() == tmp_path / "outputs"
@@ -32,6 +33,7 @@ def test_relative_runtime_paths_are_anchored_to_project(monkeypatch, tmp_path):
         == tmp_path / "outputs" / "checkpoints.sqlite3"
     )
     assert settings.resolved_personal_knowledge_root() == tmp_path / "knowledge"
+    assert settings.resolved_long_term_memory_dir() == tmp_path / "memory"
 
 
 def test_explicit_runtime_database_path_is_anchored_to_project(monkeypatch, tmp_path):

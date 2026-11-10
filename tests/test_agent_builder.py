@@ -3,8 +3,11 @@ from types import SimpleNamespace
 import deep_agents.builder as builder
 import pytest
 from langchain.agents.middleware import ModelRetryMiddleware
+from langchain.agents.middleware import TodoListMiddleware
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from backend.config import Settings
+from backend.runtime.working_memory import WorkingMemoryMiddleware
 from research_tools.gpt_researcher import CostTracker
 
 
@@ -26,6 +29,8 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
     chief_tool = object()
     researcher_tool = object()
     checkpointer = object()
+    chief_context = object()
+    researcher_context = object()
     monkeypatch.setattr(builder, "register_harness_profile", fake_register)
     monkeypatch.setattr(builder, "create_deep_agent", fake_create_deep_agent)
     monkeypatch.setattr(
@@ -44,6 +49,13 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
             researcher=[researcher_tool],
             cost_tracker=CostTracker(),
         ),
+    )
+    monkeypatch.setattr(
+        builder,
+        "build_context_middleware_stack",
+        lambda settings, model, backend, *, agent, on_compaction=None: [
+            chief_context if agent == "chief" else researcher_context
+        ],
     )
 
     built = builder.build_research_agent(
@@ -71,8 +83,12 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
     assert kwargs["checkpointer"] is checkpointer
     assert [subagent["name"] for subagent in kwargs["subagents"]] == ["researcher"]
     assert kwargs["subagents"][0]["tools"] == [researcher_tool]
-    chief_retry = kwargs["middleware"][0]
-    researcher_retry = kwargs["subagents"][0]["middleware"][0]
+    assert kwargs["middleware"][0] is chief_context
+    assert kwargs["subagents"][0]["middleware"][0] is researcher_context
+    assert isinstance(kwargs["middleware"][1], TodoListMiddleware)
+    assert isinstance(kwargs["middleware"][2], WorkingMemoryMiddleware)
+    chief_retry = kwargs["middleware"][-1]
+    researcher_retry = kwargs["subagents"][0]["middleware"][-1]
     assert isinstance(chief_retry, ModelRetryMiddleware)
     assert isinstance(researcher_retry, ModelRetryMiddleware)
     assert chief_retry is not researcher_retry
@@ -97,3 +113,43 @@ def test_harness_profile_registration_is_idempotent(monkeypatch):
     builder._disable_general_purpose_subagent("openai:test-model")
 
     assert len(calls) == 1
+
+
+def test_compiled_chief_exposes_planning_context_and_memory_tools(
+    monkeypatch, tmp_path
+):
+    builder._REGISTERED_PROFILES.clear()
+    monkeypatch.setattr(
+        builder,
+        "deep_agent_model",
+        lambda *args, **kwargs: FakeListChatModel(responses=["done"]),
+    )
+    monkeypatch.setattr(
+        builder,
+        "build_research_tool_sets",
+        lambda *args, **kwargs: SimpleNamespace(
+            chief=[], researcher=[], cost_tracker=CostTracker()
+        ),
+    )
+
+    built = builder.build_research_agent(
+        Settings(
+            deep_agent_model="openai:test-model",
+            long_term_memory_dir=tmp_path / "memory",
+        ),
+        source_mode="web",
+        run_dir=tmp_path / "run",
+        run_id="test-run",
+    )
+    tool_node = built.graph.nodes["tools"].bound
+    names = set(tool_node._tools_by_name)
+
+    assert {
+        "write_todos",
+        "update_working_memory",
+        "compact_conversation",
+        "recall_long_term_memory",
+        "save_long_term_memory",
+        "task",
+    } <= names
+    assert tool_node._injected_args["update_working_memory"].runtime == "runtime"

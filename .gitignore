@@ -21,6 +21,7 @@ frontend/dist/
 # Runtime output
 outputs/
 personal_knowledge_data/
+/memory/
 
 # Local-only upstream reference; remove after implementation is complete.
 gpt-researcher-main/
