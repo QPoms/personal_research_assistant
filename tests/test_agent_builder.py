@@ -38,7 +38,7 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(
     monkeypatch.setattr(
         builder,
         "build_research_tool_sets",
-        lambda settings, mode: SimpleNamespace(
+        lambda settings, mode, **kwargs: SimpleNamespace(
             chief=[chief_tool],
             researcher=[researcher_tool],
             cost_tracker=CostTracker(),

@@ -15,6 +15,7 @@ import json
 import re
 from typing import Any
 
+from backend.runtime.cancellation import CancellationToken
 from personal_knowledge.contracts import NativeFunctionCall
 from personal_knowledge.service import LocalPersonalKnowledgeService
 from personal_knowledge.tools import (
@@ -272,12 +273,18 @@ class LocalTaskResearcher:
         max_rounds: int = 2,
         max_selected_evidence: int = 6,
         max_tool_calls: int = 4,
+        cancellation_token: CancellationToken | None = None,
     ) -> None:
         self.model = model
         self.tools = tools
         self.max_rounds = max_rounds
         self.max_selected_evidence = max_selected_evidence
         self.max_tool_calls = max_tool_calls
+        self.cancellation_token = cancellation_token
+
+    def _check_cancelled(self) -> None:
+        if self.cancellation_token is not None:
+            self.cancellation_token.raise_if_cancelled()
 
     def _review(
         self,
@@ -458,6 +465,7 @@ Maximum active evidence: {self.max_selected_evidence}
         *,
         dependency_context: list[dict[str, Any]],
     ) -> _ResearcherWorkProduct:
+        self._check_cancelled()
         candidates: dict[str, dict[str, Any]] = {}
         dependency_candidates = {
             str(item["evidence_id"]): item
@@ -476,6 +484,7 @@ Maximum active evidence: {self.max_selected_evidence}
         submitted = False
 
         while rounds < self.max_rounds and len(tool_calls) < self.max_tool_calls:
+            self._check_cancelled()
             remaining = self.max_tool_calls - len(tool_calls)
             try:
                 review = self._review(
@@ -516,6 +525,7 @@ Maximum active evidence: {self.max_selected_evidence}
             rounds += 1
             executed = 0
             for index, raw_action in enumerate(raw_actions[:remaining], 1):
+                self._check_cancelled()
                 call_id = f"{task.task_id}-R{rounds}-C{index}"
                 audit: dict[str, Any] = {"call_id": call_id}
                 try:
@@ -543,6 +553,7 @@ Maximum active evidence: {self.max_selected_evidence}
                             task, dependency_context, candidates
                         ),
                     )
+                    self._check_cancelled()
                     new_ids: list[str] = []
                     observed_ids: list[str] = []
                     for item in payload["evidence"]:
@@ -581,6 +592,7 @@ Maximum active evidence: {self.max_selected_evidence}
                 break
 
         if candidates and not submitted:
+            self._check_cancelled()
             try:
                 final_assessment = self._review(
                     task,
@@ -809,6 +821,7 @@ class LocalResearchPipeline:
         max_rounds: int = 2,
         max_parallel_tasks: int = 3,
         max_tool_calls_per_task: int = 4,
+        cancellation_token: CancellationToken | None = None,
     ) -> None:
         self.core = core
         self.planner = LocalResearchPlanner(model, max_tasks=max_tasks)
@@ -818,10 +831,16 @@ class LocalResearchPipeline:
             self.tools,
             max_rounds=max_rounds,
             max_tool_calls=max_tool_calls_per_task,
+            cancellation_token=cancellation_token,
         )
         self.merger = EvidenceMerger()
         self.synthesizer = LocalEvidenceSynthesizer(model)
         self.max_parallel_tasks = max_parallel_tasks
+        self.cancellation_token = cancellation_token
+
+    def _check_cancelled(self) -> None:
+        if self.cancellation_token is not None:
+            self.cancellation_token.raise_if_cancelled()
 
     def _dependency_context(
         self,
@@ -835,14 +854,17 @@ class LocalResearchPipeline:
         ]
 
     def research(self, question: str) -> LocalResearchResult:
+        self._check_cancelled()
         question = question.strip()
         if not question:
             raise ValueError("question must not be empty")
         plan, planner_warnings = self.planner.plan(question)
+        self._check_cancelled()
         completed: dict[str, _ResearcherWorkProduct] = {}
         pending = list(plan.tasks)
 
         while pending:
+            self._check_cancelled()
             ready = [
                 task
                 for task in pending
@@ -865,12 +887,14 @@ class LocalResearchPipeline:
                 }
                 for task in ready:
                     completed[task.task_id] = futures[task.task_id].result()
+                    self._check_cancelled()
             ready_ids = {task.task_id for task in ready}
             pending = [task for task in pending if task.task_id not in ready_ids]
 
         ordered_products = [completed[task.task_id] for task in plan.tasks]
         results = tuple(product.result for product in ordered_products)
         evidence = self.merger.merge(ordered_products)
+        self._check_cancelled()
         findings, conflicts, gaps, summary, synthesis_warnings = (
             self.synthesizer.synthesize(
                 question,
@@ -879,6 +903,7 @@ class LocalResearchPipeline:
                 evidence,
             )
         )
+        self._check_cancelled()
         complete = bool(results) and all(
             result.status == "sufficient" for result in results
         )

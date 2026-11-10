@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from backend.config import Settings
+from backend.runtime.cancellation import CancellationToken
 from backend.runtime.model_factory import deep_agent_model
 from backend.runtime.model_retry import retry_policy_from_settings
 from personal_knowledge.config import RetrievalCfg
@@ -19,7 +20,11 @@ from personal_knowledge.research import (
 from personal_knowledge.service import LocalPersonalKnowledgeService
 
 
-def build_personal_knowledge_tool(settings: Settings):
+def build_personal_knowledge_tool(
+    settings: Settings,
+    *,
+    cancellation_token: CancellationToken | None = None,
+):
     """Build a local Tool; no HTTP, authentication, or workspace is involved."""
     settings.validate_for_personal_research()
     root = settings.resolved_personal_knowledge_root()
@@ -54,6 +59,7 @@ def build_personal_knowledge_tool(settings: Settings):
                 use_responses_api=settings.deep_agent_use_responses_api,
             ),
             retry_policy=retry_policy_from_settings(settings),
+            cancellation_token=cancellation_token,
         )
         service: Any = LocalResearchPipeline(
             core,
@@ -64,6 +70,7 @@ def build_personal_knowledge_tool(settings: Settings):
             max_tool_calls_per_task=(
                 settings.personal_knowledge_max_tool_calls_per_task
             ),
+            cancellation_token=cancellation_token,
         )
         search_method = service.research
     else:
@@ -80,7 +87,11 @@ def build_personal_knowledge_tool(settings: Settings):
         Corpus paths, Release, indexes, and limits are application configuration.
         """
         try:
+            if cancellation_token is not None:
+                cancellation_token.raise_if_cancelled()
             result = await asyncio.to_thread(search_method, query)
+            if cancellation_token is not None:
+                cancellation_token.raise_if_cancelled()
             payload = (
                 result.model_dump(mode="json")
                 if hasattr(result, "model_dump")

@@ -11,6 +11,11 @@ from typing import Any
 
 from backend.config import Settings
 from backend.events import RunEventType
+from backend.runtime.cancellation import (
+    CancellationToken,
+    RunCancelledError,
+    await_with_cancellation,
+)
 from backend.runtime.run_journal import RunJournal
 from backend.runtime.run_state import RunRecord, RunStage, RunStatus
 from backend.storage.run_paths import RunPaths, create_run_paths
@@ -101,11 +106,14 @@ async def run_research(
     *,
     guidelines: list[str] | None = None,
     run_id: str | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> ResearchRunResult:
     query = query.strip()
     if not query:
         raise ValueError("Research query must not be empty")
     mode = coerce_source_mode(source_mode)
+    token = cancellation_token or CancellationToken()
+    token.raise_if_cancelled()
     if mode in {SourceMode.PERSONAL, SourceMode.MIXED}:
         settings.validate_for_personal_research()
 
@@ -140,6 +148,7 @@ async def run_research(
             source_mode=mode,
             run_dir=paths.root,
             guidelines=guidelines,
+            cancellation_token=token,
         )
         stage = RunStage.RUNNING_AGENT
         journal.transition(
@@ -147,9 +156,13 @@ async def run_research(
             status=RunStatus.RUNNING,
             stage=stage,
         )
-        result = await built.graph.ainvoke(
-            {"messages": [{"role": "user", "content": user_request}]}
+        result = await await_with_cancellation(
+            built.graph.ainvoke(
+                {"messages": [{"role": "user", "content": user_request}]}
+            ),
+            token,
         )
+        token.raise_if_cancelled()
         _write_agent_trace(paths, result)
         stage = RunStage.VALIDATING_REPORT
         journal.transition(
@@ -166,6 +179,7 @@ async def run_research(
                 f"Agent completed without creating {VIRTUAL_REPORT_PATH}; "
                 f"last message: {summary or '[empty]'}"
             )
+        token.raise_if_cancelled()
         finished_at = datetime.now(UTC)
         summary = _last_message_text(result)
         journal.transition(
@@ -183,6 +197,17 @@ async def run_research(
             summary=summary,
             web_research_cost=built.cost_tracker.total,
         )
+    except RunCancelledError as exc:
+        web_cost = built.cost_tracker.total if built else 0.0
+        journal.transition(
+            RunEventType.RUN_CANCELLED,
+            finished_at=datetime.now(UTC),
+            status=RunStatus.CANCELLED,
+            stage=journal.record.stage,
+            web_research_cost=web_cost,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise
     except (KeyboardInterrupt, asyncio.CancelledError) as exc:
         web_cost = built.cost_tracker.total if built else 0.0
         journal.transition(

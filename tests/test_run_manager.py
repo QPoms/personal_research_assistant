@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ import pytest
 import backend.research.run_manager as run_manager
 from backend.config import Settings
 from backend.events import JsonlRunEventStore, RunEventType
+from backend.runtime.cancellation import CancellationToken, RunCancelledError
 from backend.runtime.run_state import RunStatus
 from backend.storage.sqlite_runtime import SQLiteRuntimeStore
 
@@ -23,12 +25,63 @@ class _Graph:
         return self.result
 
 
+class _BlockingGraph:
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.cleaned_up = asyncio.Event()
+
+    async def ainvoke(self, payload):
+        self.started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            self.cleaned_up.set()
+
+
 def _settings(tmp_path):
     return Settings(outputs_dir=tmp_path)
 
 
 def _events(root, run_id):
     return JsonlRunEventStore(root / "events.jsonl", run_id).read()
+
+
+@pytest.mark.asyncio
+async def test_requested_cancellation_is_persisted_as_cancelled(monkeypatch, tmp_path):
+    graph = _BlockingGraph()
+    built = SimpleNamespace(
+        graph=graph,
+        cost_tracker=SimpleNamespace(total=0.0),
+    )
+    token = CancellationToken()
+    monkeypatch.setattr(run_manager, "build_research_agent", lambda *a, **k: built)
+
+    task = asyncio.create_task(
+        run_manager.run_research(
+            "topic",
+            "web",
+            _settings(tmp_path),
+            run_id="cancelled",
+            cancellation_token=token,
+        )
+    )
+    await graph.started.wait()
+    token.cancel("requested from UI")
+
+    with pytest.raises(RunCancelledError, match="requested from UI"):
+        await task
+
+    root = tmp_path / "run_cancelled"
+    metadata = json.loads((root / "run.json").read_text(encoding="utf-8"))
+    assert metadata["status"] == "cancelled"
+    assert metadata["stage"] == "running_agent"
+    assert metadata["error"] == "RunCancelledError: requested from UI"
+    assert graph.cleaned_up.is_set()
+    events = _events(root, "cancelled")
+    assert events[-1].event_type is RunEventType.RUN_CANCELLED
+    canonical = SQLiteRuntimeStore(tmp_path / "runtime.sqlite3").get_run("cancelled")
+    assert canonical is not None
+    assert canonical.status is RunStatus.CANCELLED
 
 
 @pytest.mark.asyncio

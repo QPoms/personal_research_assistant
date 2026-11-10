@@ -31,6 +31,9 @@ not import another project's complete platform or adopt multi-tenant services.
    retry boundaries must be defined per tool.
 7. Authentication, workspaces, Redis, Celery, Docker and multi-tenancy remain
    out of scope until local single-user reliability requires them.
+8. Cancellation is a run-scoped cooperative signal. Async graph execution is
+   actively cancelled, while synchronous local-research threads check the same
+   token at model, retrieval, merge and synthesis boundaries.
 
 ## Source links
 

@@ -20,6 +20,7 @@ from deepagents import (
 from deepagents.backends import FilesystemBackend
 
 from backend.config import Settings
+from backend.runtime.cancellation import CancellationToken
 from backend.runtime.model_factory import deep_agent_model
 from backend.runtime.model_retry import retry_policy_from_settings
 from deep_agents.prompts import build_chief_prompt, build_researcher_prompt
@@ -57,6 +58,7 @@ def build_research_agent(
     source_mode: SourceMode | str,
     run_dir: Path,
     guidelines: list[str] | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> BuiltResearchAgent:
     mode = coerce_source_mode(source_mode)
     model_spec = settings.deep_agent_model.strip()
@@ -66,7 +68,9 @@ def build_research_agent(
         use_responses_api=settings.deep_agent_use_responses_api,
     )
     _disable_general_purpose_subagent(model_spec)
-    tool_sets = build_research_tool_sets(settings, mode)
+    tool_sets = build_research_tool_sets(
+        settings, mode, cancellation_token=cancellation_token
+    )
     retry_policy = retry_policy_from_settings(settings)
 
     researcher_subagent = {

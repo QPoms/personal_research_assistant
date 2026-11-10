@@ -152,6 +152,11 @@ anchored to the repository root. Inside Deep Agents, the same run directory is
 exposed only as virtual `/`; drafts use `/sections/...` and the final report
 uses `/report.md`.
 
+Callers may pass a run-scoped `CancellationToken` to `run_research`. A requested
+cancel stops the active Deep Agents task, propagates through GPT Researcher and
+the embedded SpecRAG pipeline, interrupts local model retry backoff, and commits
+the terminal `cancelled` snapshot together with a `run.cancelled` event.
+
 ## Tests
 
 ```powershell

@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from langchain_core.language_models import BaseChatModel
 
 from backend.runtime.model_retry import ModelRetryPolicy, is_retryable_model_error
+from backend.runtime.cancellation import CancellationToken
 
 
 class StructuredResearchModel(Protocol):
@@ -58,16 +59,29 @@ class LangChainStructuredResearchModel:
         *,
         retry_policy: ModelRetryPolicy | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        cancellation_token: CancellationToken | None = None,
     ) -> None:
         self._model = model
         self._retry_policy = retry_policy or ModelRetryPolicy()
         self._sleep = sleep
+        self._cancellation_token = cancellation_token
+
+    def _check_cancelled(self) -> None:
+        if self._cancellation_token is not None:
+            self._cancellation_token.raise_if_cancelled()
+
+    def _retry_sleep(self, delay_seconds: float) -> None:
+        if self._cancellation_token is not None:
+            self._cancellation_token.sleep(delay_seconds)
+        else:
+            self._sleep(delay_seconds)
 
     def complete_json(self, prompt: str) -> dict[str, Any]:
         last_error: Exception | None = None
         diagnostics: list[str] = []
         attempts = self._retry_policy.max_retries + 1
         for attempt in range(attempts):
+            self._check_cancelled()
             request = prompt
             if attempt:
                 request += (
@@ -83,8 +97,9 @@ class LangChainStructuredResearchModel:
                     or attempt >= self._retry_policy.max_retries
                 ):
                     raise
-                self._sleep(self._retry_policy.delay_seconds(attempt))
+                self._retry_sleep(self._retry_policy.delay_seconds(attempt))
                 continue
+            self._check_cancelled()
             candidates = [("content", _message_text(response.content))]
             reasoning = response.additional_kwargs.get("reasoning_content")
             if isinstance(reasoning, str):
@@ -101,7 +116,7 @@ class LangChainStructuredResearchModel:
                     preview = text.strip().replace("\n", " ")[:240]
                     diagnostics.append(f"attempt {attempt + 1} {source}: {preview!r}")
             if attempt < self._retry_policy.max_retries:
-                self._sleep(self._retry_policy.delay_seconds(attempt))
+                self._retry_sleep(self._retry_policy.delay_seconds(attempt))
         detail = "; ".join(diagnostics) or "no response diagnostics"
         raise ValueError(
             "model response did not contain a JSON object; " + detail
