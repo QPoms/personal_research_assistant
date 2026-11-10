@@ -7,9 +7,10 @@ from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.api.sse import resolve_event_cursor, stream_run_events
-from backend.config import Settings, load_settings
+from backend.config import PROJECT_ROOT, Settings, load_settings
 from backend.runtime.run_state import RunRecord, RunStatus
 from backend.storage.sqlite_runtime import SQLiteRuntimeStore
 
@@ -65,6 +66,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    frontend_dist = PROJECT_ROOT / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
     return app
 

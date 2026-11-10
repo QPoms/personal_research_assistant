@@ -5,6 +5,7 @@ import json
 from fastapi.testclient import TestClient
 import pytest
 
+import backend.api.app as api_app
 from backend.api import create_app
 from backend.api.sse import stream_run_events
 from backend.config import Settings
@@ -194,3 +195,21 @@ async def test_sse_tails_running_ledger_until_terminal_event(tmp_path):
         for line in chunk.splitlines()
         if line.startswith("data: ")
     ] == [1, 2]
+
+
+def test_api_serves_built_frontend_without_shadowing_api(monkeypatch, tmp_path):
+    frontend = tmp_path / "frontend" / "dist"
+    frontend.mkdir(parents=True)
+    (frontend / "index.html").write_text(
+        "<!doctype html><title>Runtime console</title>", encoding="utf-8"
+    )
+    monkeypatch.setattr(api_app, "PROJECT_ROOT", tmp_path)
+    client = TestClient(api_app.create_app(Settings(outputs_dir=tmp_path / "outputs")))
+
+    root = client.get("/")
+    health = client.get("/api/v1/health")
+
+    assert root.status_code == 200
+    assert "Runtime console" in root.text
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}

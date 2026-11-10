@@ -34,6 +34,9 @@ not import another project's complete platform or adopt multi-tenant services.
 8. Cancellation is a run-scoped cooperative signal. Async graph execution is
    actively cancelled, while synchronous local-research threads check the same
    token at model, retrieval, merge and synthesis boundaries.
+9. Tiered context governance and a general Artifact Store are intentionally
+   deferred. They will be designed from this project's measured payload sizes,
+   retrieval semantics and privacy boundary instead of copied from a platform.
 
 ## Source links
 

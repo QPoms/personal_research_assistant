@@ -164,6 +164,21 @@ available at `GET /api/v1/runs/{run_id}`. The event endpoint
 new events. Clients resume with `after_seq` or the SSE `Last-Event-ID` header;
 the durable per-run sequence is used as the SSE event ID.
 
+The minimal runtime console lives in `frontend/`. Build it once, then the same
+FastAPI process serves the production assets and API on port 8000:
+
+```powershell
+Set-Location frontend
+npm install
+npm run build
+Set-Location ..
+uv run research-assistant-api
+```
+
+For frontend development, `npm run dev` starts Vite on port 5173 and proxies
+`/api` to the local FastAPI process. The console intentionally contains no
+login, workspace, multi-tenant, or cloud deployment layer.
+
 ## Tests
 
 ```powershell
