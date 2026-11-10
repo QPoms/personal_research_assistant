@@ -49,7 +49,7 @@ def build_personal_knowledge_tool(settings: Settings):
         )
         research_model = LangChainStructuredResearchModel(deep_agent_model(
             model_name,
-            max_output_tokens=settings.deep_agent_max_output_tokens,
+            max_output_tokens=settings.personal_knowledge_model_max_output_tokens,
             use_responses_api=settings.deep_agent_use_responses_api,
         ))
         service: Any = LocalResearchPipeline(
@@ -58,6 +58,9 @@ def build_personal_knowledge_tool(settings: Settings):
             max_tasks=settings.personal_knowledge_max_tasks,
             max_rounds=settings.personal_knowledge_max_retrieval_rounds,
             max_parallel_tasks=settings.personal_knowledge_max_parallel_tasks,
+            max_tool_calls_per_task=(
+                settings.personal_knowledge_max_tool_calls_per_task
+            ),
         )
         search_method = service.research
     else:

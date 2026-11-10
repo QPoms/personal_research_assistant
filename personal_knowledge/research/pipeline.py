@@ -12,12 +12,29 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
-from typing import Any, Callable
+import re
+from typing import Any
 
+from personal_knowledge.contracts import NativeFunctionCall
 from personal_knowledge.service import LocalPersonalKnowledgeService
+from personal_knowledge.tools import (
+    ClauseLookupArguments,
+    ClauseNavigationArguments,
+    CrossReferenceLookupArguments,
+    ExpandSourceContextArguments,
+    HybridSearchArguments,
+    HyDESearchArguments,
+    KeywordSearchArguments,
+    RerankArguments,
+    RetrievalToolArguments,
+    RetrievalToolRequest,
+    SemanticSearchArguments,
+    ToolRegistry,
+)
 
 from .model import StructuredResearchModel
 from .models import (
+    EvidenceRequirement,
     Finding,
     LocalResearchResult,
     ResearchPlan,
@@ -50,7 +67,10 @@ class LocalResearchPlanner:
         prompt = f"""You are the local private-knowledge research planner.
 Decompose the question only when it contains genuinely independent research
 objectives. A cohesive question that one retrieval context can answer must stay
-as one task. Produce between 1 and {self.max_tasks} ordered tasks. Dependencies
+as one task. Explicitly enumerated normative dimensions such as applicability
+conditions, exceptions, and failure handling should be separate tasks when they
+are likely governed by different clauses or evidence. Produce between 1 and
+{self.max_tasks} ordered tasks. Dependencies
 may reference only earlier tasks and only when their validated evidence is
 required to research the later task. Do not create a terminal writing,
 integration, validation, or synthesis task.
@@ -77,6 +97,149 @@ Question: {question}
             return fallback, (f"planner_fallback: {type(exc).__name__}: {exc}",)
 
 
+class LocalRetrievalToolRegistry:
+    """Adapter over SpecRAG's original strict nine-tool registry."""
+
+    def __init__(self, core: LocalPersonalKnowledgeService) -> None:
+        self.core = core
+        self.registry: ToolRegistry = core.build_tool_registry()
+        self.definitions = tuple(
+            item.model_dump(mode="json") for item in self.registry.definitions
+        )
+        retriever = core._get_retriever()
+        self.available_specifications = frozenset(
+            item.specification for item in retriever.documents
+        )
+
+    def parse_action(
+        self,
+        raw: Any,
+        *,
+        call_id: str,
+        query_id: str,
+    ) -> tuple[str, RetrievalToolArguments]:
+        if not isinstance(raw, dict):
+            raise ValueError("tool action must be an object")
+        name = raw.get("tool")
+        arguments = raw.get("arguments")
+        if not isinstance(name, str) or not isinstance(arguments, dict):
+            raise ValueError("tool action requires tool and arguments")
+        normalized = dict(arguments)
+        normalized.setdefault("query_id", query_id)
+        normalized.setdefault("max_results", min(self.core.max_results, 12))
+        parsed = self.registry.parse_call(NativeFunctionCall(
+            call_id=call_id,
+            name=name,
+            arguments=normalized,
+        ))
+        return name, parsed
+
+    def execute(
+        self,
+        name: str,
+        arguments: RetrievalToolArguments,
+        *,
+        request_id: str,
+        candidates: dict[str, dict[str, Any]],
+        grounded_specifications: frozenset[str],
+    ) -> dict[str, Any]:
+        targets = tuple(getattr(arguments, "target_specifications", ()))
+        unknown = sorted(set(targets) - self.available_specifications)
+        if unknown:
+            raise ValueError("unknown specifications: " + ", ".join(unknown))
+        ungrounded = sorted(set(targets) - grounded_specifications)
+        if ungrounded:
+            raise ValueError(
+                "specifications are not grounded in the task, dependency "
+                "context, or observed evidence: " + ", ".join(ungrounded)
+            )
+
+        seed_ids = tuple(getattr(arguments, "seed_evidence_ids", ()))
+        unknown_seeds = tuple(item for item in seed_ids if item not in candidates)
+        if unknown_seeds:
+            raise ValueError("unknown seed evidence IDs: " + ", ".join(unknown_seeds))
+        seed_chunks = tuple(str(candidates[item]["chunk_id"]) for item in seed_ids)
+
+        query = ""
+        semantic_query = None
+        hypothetical_document = None
+        clause = None
+        relation = None
+        reference_specification = None
+        reference_version = None
+        reference_clause = None
+        include_descendants = False
+        cursor = 0
+        if isinstance(arguments, KeywordSearchArguments):
+            query = arguments.lexical_query
+        elif isinstance(arguments, SemanticSearchArguments):
+            query = arguments.semantic_query
+            semantic_query = arguments.semantic_query
+        elif isinstance(arguments, HybridSearchArguments):
+            query = arguments.lexical_query
+            semantic_query = arguments.semantic_query
+        elif isinstance(arguments, HyDESearchArguments):
+            query = arguments.lexical_query
+            hypothetical_document = arguments.hypothetical_document
+        elif isinstance(arguments, RerankArguments):
+            query = arguments.semantic_query
+            semantic_query = arguments.semantic_query
+        elif isinstance(arguments, ClauseLookupArguments):
+            clause = arguments.clause
+            include_descendants = arguments.include_descendants
+            cursor = arguments.cursor
+        elif isinstance(arguments, ClauseNavigationArguments):
+            relation = arguments.relation
+            cursor = arguments.cursor
+        elif isinstance(arguments, CrossReferenceLookupArguments):
+            reference_specification = arguments.target_specification
+            reference_version = arguments.target_version
+            reference_clause = arguments.target_clause
+            cursor = arguments.cursor
+        elif not isinstance(arguments, ExpandSourceContextArguments):
+            raise TypeError(f"unsupported retrieval arguments: {type(arguments).__name__}")
+
+        request = RetrievalToolRequest(
+            request_id=request_id,
+            query_id=arguments.query_id,
+            query=query,
+            semantic_query=semantic_query,
+            hypothetical_document=hypothetical_document,
+            target_specifications=targets,
+            clause=clause,
+            clause_relation=relation,
+            reference_specification=reference_specification,
+            reference_version=reference_version,
+            reference_clause=reference_clause,
+            include_descendants=include_descendants,
+            cursor=cursor,
+            seed_chunk_ids=seed_chunks,
+            limit=arguments.max_results,
+        )
+        result = self.registry.invoke(name, request)  # type: ignore[arg-type]
+        validated: list[dict[str, Any]] = []
+        errors = list(result.errors)
+        for item in result.evidence:
+            evidence = self.core.validate_tool_evidence(item)
+            if evidence["source_valid"]:
+                validated.append(evidence)
+            else:
+                errors.append(
+                    f"source validation rejected chunk {item.chunk_id}"
+                )
+        status = result.status
+        if validated and errors:
+            status = "partial"
+        elif not validated and status == "completed":
+            status = "unavailable"
+        return {
+            "status": status,
+            "evidence": validated,
+            "errors": errors,
+            "next_cursor": result.next_cursor,
+        }
+
+
 @dataclass(slots=True)
 class _ResearcherWorkProduct:
     result: TaskResearchResult
@@ -87,58 +250,133 @@ class LocalTaskResearcher:
     def __init__(
         self,
         model: StructuredResearchModel,
-        search: Callable[[str], dict[str, Any]],
+        tools: LocalRetrievalToolRegistry,
         *,
         max_rounds: int = 2,
         max_selected_evidence: int = 6,
+        max_tool_calls: int = 4,
     ) -> None:
         self.model = model
-        self.search = search
+        self.tools = tools
         self.max_rounds = max_rounds
         self.max_selected_evidence = max_selected_evidence
+        self.max_tool_calls = max_tool_calls
 
-    @staticmethod
-    def _merge_candidates(
-        existing: dict[str, dict[str, Any]],
-        payload: dict[str, Any],
-    ) -> tuple[str, ...]:
-        errors = tuple(str(item) for item in payload.get("unresolved_gaps") or ())
-        for item in payload.get("evidence") or ():
-            if not isinstance(item, dict):
-                continue
-            evidence_id = item.get("evidence_id")
-            if isinstance(evidence_id, str) and item.get("source_valid") is True:
-                existing.setdefault(evidence_id, dict(item))
-        return errors
-
-    def _assess(
+    def _review(
         self,
         task: ResearchTask,
-        candidates: list[dict[str, Any]],
+        candidates: dict[str, dict[str, Any]],
         *,
+        active_ids: tuple[str, ...],
         dependency_context: list[dict[str, Any]],
-        allow_followup: bool,
+        allow_actions: bool,
+        remaining_tool_calls: int,
     ) -> dict[str, Any]:
-        prompt = f"""You are the local knowledge Researcher for exactly one task.
-Select only evidence that directly supports the task. Decide whether the
-selected evidence is sufficient. If important coverage is missing and a
-follow-up is allowed, propose one focused retrieval query. Do not invent facts,
-citations, specification numbers, or evidence IDs.
+        active = set(active_ids)
+        evidence_payload = []
+        for evidence_id, item in candidates.items():
+            value = dict(_compact_evidence([item], limit=1)[0])
+            value["status"] = "active" if evidence_id in active else "candidate"
+            value["retrieval_tool"] = item.get("retrieval_tool")
+            evidence_payload.append(value)
+        prompt = f"""You are the SpecRAG local Researcher for exactly one task.
+Maintain a bounded active evidence set while retaining all observed candidates.
+Review evidence before acting. You may invoke the original retrieval tools,
+including clause lookup/navigation, cross-reference traversal, source-context
+expansion, HyDE, and reranking. Seed arguments always use observed Evidence IDs,
+never chunk IDs. Target specifications must be grounded in the task, dependency
+evidence, or observed evidence. Do not invent citations or clause numbers.
+
+This Researcher performs its own sufficiency decision. There is no downstream
+Validator. Set submit_research_result=true only after choosing the evidence that
+should be sent to the deterministic merger and local synthesizer.
 
 Return JSON only:
 {{
+  "assessment":"...",
   "status":"sufficient|partial|insufficient",
-  "supporting_evidence_ids":["E-..."],
+  "evidence_requirements":[{{"requirement_id":"R1","description":"...","coverage_status":"missing|partial|covered","evidence_ids":["E-..."]}}],
+  "active_evidence_ids":["E-..."],
   "unresolved_gaps":["..."],
-  "followup_query":"... or null"
+  "submit_research_result":false,
+  "actions":[{{"tool":"one registered tool name","arguments":{{...}}}}]
 }}
 
+Registered tool definitions: {json.dumps(self.tools.definitions, ensure_ascii=False)}
 Task: {task.model_dump_json()}
 Dependency context: {json.dumps(_compact_evidence(dependency_context, limit=6), ensure_ascii=False)}
-Candidate evidence: {json.dumps(_compact_evidence(candidates), ensure_ascii=False)}
-Follow-up allowed: {str(allow_followup).lower()}
+Evidence ledger: {json.dumps(evidence_payload, ensure_ascii=False)}
+Actions allowed: {str(allow_actions).lower()}
+Remaining tool-call budget: {remaining_tool_calls}
+Maximum active evidence: {self.max_selected_evidence}
 """
         return self.model.complete_json(prompt)
+
+    @staticmethod
+    def _grounded_specifications(
+        task: ResearchTask,
+        dependency_context: list[dict[str, Any]],
+        candidates: dict[str, dict[str, Any]],
+    ) -> frozenset[str]:
+        explicit = set(re.findall(r"\b\d{2}\.\d{3}\b", task.question))
+        explicit.update(
+            str(item["specification"])
+            for item in (*dependency_context, *candidates.values())
+            if item.get("specification")
+        )
+        return frozenset(explicit)
+
+    def _fallback_action(self, task: ResearchTask) -> dict[str, Any]:
+        return {
+            "tool": "hybrid_search",
+            "arguments": {
+                "query_id": task.task_id,
+                "max_results": min(self.tools.core.max_results, 12),
+                "target_specifications": sorted(
+                    set(re.findall(r"\b\d{2}\.\d{3}\b", task.question))
+                ),
+                "lexical_query": task.question,
+                "semantic_query": task.question,
+            },
+        }
+
+    @staticmethod
+    def _select_ids(
+        raw: Any,
+        candidates: dict[str, dict[str, Any]],
+        *,
+        limit: int,
+    ) -> tuple[str, ...]:
+        if not isinstance(raw, list):
+            return ()
+        return tuple(dict.fromkeys(
+            item for item in raw if isinstance(item, str) and item in candidates
+        ))[:limit]
+
+    @staticmethod
+    def _requirements(
+        raw: Any,
+        candidates: dict[str, dict[str, Any]],
+    ) -> tuple[EvidenceRequirement, ...]:
+        if not isinstance(raw, list):
+            return ()
+        requirements: list[EvidenceRequirement] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized["evidence_ids"] = tuple(
+                evidence_id
+                for evidence_id in normalized.get("evidence_ids") or ()
+                if evidence_id in candidates
+            )
+            if normalized.get("coverage_status") != "missing" and not normalized["evidence_ids"]:
+                normalized["coverage_status"] = "missing"
+            try:
+                requirements.append(EvidenceRequirement.model_validate(normalized))
+            except ValueError:
+                continue
+        return tuple(requirements)
 
     def research(
         self,
@@ -148,9 +386,118 @@ Follow-up allowed: {str(allow_followup).lower()}
     ) -> _ResearcherWorkProduct:
         candidates: dict[str, dict[str, Any]] = {}
         gaps: list[str] = []
-        rounds = 1
-        first = self.search(task.question)
-        gaps.extend(self._merge_candidates(candidates, first))
+        rounds = 0
+        tool_calls: list[dict[str, Any]] = []
+        active_ids: tuple[str, ...] = ()
+        final_assessment: dict[str, Any] = {}
+        submitted = False
+
+        while rounds < self.max_rounds and len(tool_calls) < self.max_tool_calls:
+            remaining = self.max_tool_calls - len(tool_calls)
+            try:
+                review = self._review(
+                    task,
+                    candidates,
+                    active_ids=active_ids,
+                    dependency_context=dependency_context,
+                    allow_actions=True,
+                    remaining_tool_calls=remaining,
+                )
+            except Exception as exc:
+                gaps.append(f"researcher_fallback: {type(exc).__name__}: {exc}")
+                review = {"actions": [self._fallback_action(task)]} if not candidates else {}
+
+            selected = self._select_ids(
+                review.get("active_evidence_ids"),
+                candidates,
+                limit=self.max_selected_evidence,
+            )
+            if selected or review.get("active_evidence_ids") == []:
+                active_ids = selected
+            final_assessment = review
+            if review.get("submit_research_result") is True and active_ids:
+                submitted = True
+                break
+
+            raw_actions = review.get("actions")
+            if not isinstance(raw_actions, list) or not raw_actions:
+                if candidates:
+                    break
+                raw_actions = [self._fallback_action(task)]
+
+            rounds += 1
+            executed = 0
+            for index, raw_action in enumerate(raw_actions[:remaining], 1):
+                call_id = f"{task.task_id}-R{rounds}-C{index}"
+                audit: dict[str, Any] = {"call_id": call_id}
+                try:
+                    name, arguments = self.tools.parse_action(
+                        raw_action,
+                        call_id=call_id,
+                        query_id=task.task_id,
+                    )
+                    audit.update({
+                        "tool": name,
+                        "arguments": arguments.model_dump(mode="json"),
+                    })
+                    payload = self.tools.execute(
+                        name,
+                        arguments,
+                        request_id=call_id,
+                        candidates=candidates,
+                        grounded_specifications=self._grounded_specifications(
+                            task, dependency_context, candidates
+                        ),
+                    )
+                    new_ids: list[str] = []
+                    observed_ids: list[str] = []
+                    for item in payload["evidence"]:
+                        evidence_id = str(item["evidence_id"])
+                        observed_ids.append(evidence_id)
+                        if evidence_id not in candidates:
+                            candidates[evidence_id] = item
+                            new_ids.append(evidence_id)
+                    gaps.extend(str(item) for item in payload["errors"])
+                    audit.update({
+                        "status": payload["status"],
+                        "evidence_ids": observed_ids,
+                        "new_evidence_ids": new_ids,
+                        "next_cursor": payload["next_cursor"],
+                        "errors": payload["errors"],
+                    })
+                except Exception as exc:
+                    audit.update({
+                        "tool": raw_action.get("tool") if isinstance(raw_action, dict) else None,
+                        "status": "rejected",
+                        "evidence_ids": [],
+                        "new_evidence_ids": [],
+                        "errors": [f"{type(exc).__name__}: {exc}"],
+                    })
+                    gaps.extend(audit["errors"])
+                tool_calls.append(audit)
+                executed += 1
+            if executed == 0:
+                break
+
+        if candidates and not submitted:
+            try:
+                final_assessment = self._review(
+                    task,
+                    candidates,
+                    active_ids=active_ids,
+                    dependency_context=dependency_context,
+                    allow_actions=False,
+                    remaining_tool_calls=0,
+                )
+                selected = self._select_ids(
+                    final_assessment.get("active_evidence_ids"),
+                    candidates,
+                    limit=self.max_selected_evidence,
+                )
+                if selected:
+                    active_ids = selected
+            except Exception as exc:
+                gaps.append(f"researcher_finalization_fallback: {type(exc).__name__}: {exc}")
 
         if not candidates:
             result = TaskResearchResult(
@@ -159,61 +506,27 @@ Follow-up allowed: {str(allow_followup).lower()}
                 status="insufficient",
                 supporting_evidence_ids=(),
                 unresolved_gaps=tuple(dict.fromkeys(gaps or ["No source-verified evidence was retrieved."])),
-                retrieval_rounds=rounds,
+                retrieval_rounds=max(rounds, 1),
                 candidate_count=0,
+                active_evidence_ids=(),
+                evidence_requirements=(),
+                tool_calls=tuple(tool_calls),
             )
             return _ResearcherWorkProduct(result=result, selected_evidence=())
 
-        assessment_error: str | None = None
-        try:
-            assessment = self._assess(
-                task,
-                list(candidates.values()),
-                dependency_context=dependency_context,
-                allow_followup=self.max_rounds > 1,
-            )
-        except Exception as exc:
-            assessment_error = f"researcher_fallback: {type(exc).__name__}: {exc}"
-            assessment = {}
-
-        followup = assessment.get("followup_query")
-        if (
-            isinstance(followup, str)
-            and followup.strip()
-            and rounds < self.max_rounds
-            and assessment.get("status") != "sufficient"
-        ):
-            rounds += 1
-            second = self.search(followup.strip())
-            gaps.extend(self._merge_candidates(candidates, second))
-            try:
-                assessment = self._assess(
-                    task,
-                    list(candidates.values()),
-                    dependency_context=dependency_context,
-                    allow_followup=False,
-                )
-                assessment_error = None
-            except Exception as exc:
-                assessment_error = f"researcher_fallback: {type(exc).__name__}: {exc}"
-                assessment = {}
-
-        allowed_ids = set(candidates)
-        raw_ids = assessment.get("supporting_evidence_ids") or ()
-        selected_ids = tuple(dict.fromkeys(
-            item for item in raw_ids if isinstance(item, str) and item in allowed_ids
-        ))[: self.max_selected_evidence]
-        raw_status = assessment.get("status")
+        selected_ids = active_ids
+        requirements = self._requirements(
+            final_assessment.get("evidence_requirements"), candidates
+        )
+        raw_status = final_assessment.get("status")
         status = raw_status if raw_status in {"sufficient", "partial", "insufficient"} else "partial"
-        assessment_gaps = assessment.get("unresolved_gaps") or ()
+        assessment_gaps = final_assessment.get("unresolved_gaps") or ()
         gaps.extend(str(item) for item in assessment_gaps if str(item).strip())
-        if assessment_error:
-            gaps.append(assessment_error)
 
         if not selected_ids:
             selected_ids = tuple(candidates)[: self.max_selected_evidence]
             status = "partial"
-            gaps.append("Researcher selection was unavailable; retained the highest-ranked verified evidence.")
+            gaps.append("Researcher active-set selection was unavailable; retained the highest-ranked verified evidence.")
         selected = tuple(candidates[evidence_id] for evidence_id in selected_ids)
         result = TaskResearchResult(
             task_id=task.task_id,
@@ -221,8 +534,11 @@ Follow-up allowed: {str(allow_followup).lower()}
             status=status,
             supporting_evidence_ids=selected_ids,
             unresolved_gaps=tuple(dict.fromkeys(gaps)),
-            retrieval_rounds=rounds,
+            retrieval_rounds=max(rounds, 1),
             candidate_count=len(candidates),
+            active_evidence_ids=selected_ids,
+            evidence_requirements=requirements,
+            tool_calls=tuple(tool_calls),
         )
         return _ResearcherWorkProduct(result=result, selected_evidence=selected)
 
@@ -342,13 +658,16 @@ class LocalResearchPipeline:
         max_tasks: int = 3,
         max_rounds: int = 2,
         max_parallel_tasks: int = 3,
+        max_tool_calls_per_task: int = 4,
     ) -> None:
         self.core = core
         self.planner = LocalResearchPlanner(model, max_tasks=max_tasks)
+        self.tools = LocalRetrievalToolRegistry(core)
         self.researcher = LocalTaskResearcher(
             model,
-            core.search,
+            self.tools,
             max_rounds=max_rounds,
+            max_tool_calls=max_tool_calls_per_task,
         )
         self.merger = EvidenceMerger()
         self.synthesizer = LocalEvidenceSynthesizer(model)
@@ -425,5 +744,6 @@ __all__ = [
     "LocalEvidenceSynthesizer",
     "LocalResearchPipeline",
     "LocalResearchPlanner",
+    "LocalRetrievalToolRegistry",
     "LocalTaskResearcher",
 ]

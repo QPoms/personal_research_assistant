@@ -52,8 +52,28 @@ class LangChainStructuredResearchModel:
         self._model = model
 
     def complete_json(self, prompt: str) -> dict[str, Any]:
-        response = self._model.invoke(prompt)
-        return _parse_json_object(_message_text(response.content))
+        last_error: Exception | None = None
+        for attempt in range(2):
+            request = prompt
+            if attempt:
+                request += (
+                    "\n\nYour previous response was not a parseable JSON object. "
+                    "Return the requested JSON object now, with no analysis, "
+                    "Markdown, or surrounding prose."
+                )
+            response = self._model.invoke(request)
+            candidates = [_message_text(response.content)]
+            reasoning = response.additional_kwargs.get("reasoning_content")
+            if isinstance(reasoning, str):
+                candidates.append(reasoning)
+            for text in candidates:
+                if not text.strip():
+                    continue
+                try:
+                    return _parse_json_object(text)
+                except (ValueError, json.JSONDecodeError) as exc:
+                    last_error = exc
+        raise ValueError("model response did not contain a JSON object") from last_error
 
 
 __all__ = [

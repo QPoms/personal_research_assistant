@@ -9,11 +9,21 @@ Chief Editor
     -> search_personal_knowledge(query)
       -> Local Planner (1-3 tasks, ordered dependencies)
       -> Local task Researchers
-          -> BM25 + optional Dense retrieval
-          -> RRF
+          -> maintain candidate pool + bounded Active Set
+          -> track evidence requirements and coverage
+          -> choose from the original strict retrieval registry
+              -> hybrid_search (BM25 + Dense + RRF)
+              -> keyword_search (BM25)
+              -> semantic_search (Dense)
+              -> hyde_search
+              -> rerank
+              -> clause_lookup
+              -> navigate_clause
+              -> cross_reference_lookup
+              -> expand_source_context
           -> deterministic source/hash/locator/excerpt validation
-          -> one optional focused follow-up retrieval
-          -> selected supporting Evidence IDs
+          -> bounded multi-round retrieval and navigation
+          -> submit selected Active Evidence IDs
       -> deterministic cross-task Evidence Merger
       -> Local Evidence Synthesizer
           -> findings bound to Evidence IDs
@@ -27,7 +37,7 @@ Chief Editor
 
 The original separate model-based Sufficiency Judge/Validator loop is not part
 of this runtime. Each task Researcher decides whether its evidence is
-sufficient and may perform at most one follow-up retrieval. The inexpensive,
+sufficient and submits its Active Set directly to the merger. The inexpensive,
 deterministic source-integrity validator remains mandatory.
 
 The local Synthesizer is retained with a narrower contract: it prepares a
@@ -47,6 +57,12 @@ The Tool returns:
 
 Unselected candidate chunks remain internal to the local workflow and are not
 placed in the Chief Editor's context.
+
+Each task Researcher receives the nine-tool SpecRAG registry as strict schemas
+with the original descriptions. Calls are validated for query identity,
+specification scope, grounded specification targets, known seed Evidence IDs,
+and per-task round/tool budgets. It cannot execute arbitrary Python, HTTP, MCP,
+filesystem, or shell tools.
 
 ## Privacy gate
 

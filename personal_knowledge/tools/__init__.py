@@ -1,0 +1,57 @@
+"""Original SpecRAG retrieval tools retained as an in-process registry."""
+
+from .models import (
+    ClauseLookupArguments,
+    ClauseNavigationArguments,
+    CrossReferenceLookupArguments,
+    ExpandSourceContextArguments,
+    HybridSearchArguments,
+    HyDESearchArguments,
+    KeywordSearchArguments,
+    RerankArguments,
+    RetrievalTool,
+    RetrievalToolArguments,
+    RetrievalToolName,
+    RetrievalToolRequest,
+    RetrievalToolResult,
+    ScoreKind,
+    SemanticSearchArguments,
+    ToolCapability,
+    ToolEvidence,
+    ToolStatus,
+    parse_retrieval_tool_arguments,
+)
+from .registry import ToolRegistry
+from .retrieval import (
+    HyDESearchTool,
+    build_retrieval_tool_registry,
+    retrieval_tool_capabilities,
+    retrieval_tool_definitions,
+)
+
+__all__ = [
+    "ClauseLookupArguments",
+    "ClauseNavigationArguments",
+    "CrossReferenceLookupArguments",
+    "ExpandSourceContextArguments",
+    "HybridSearchArguments",
+    "HyDESearchArguments",
+    "HyDESearchTool",
+    "KeywordSearchArguments",
+    "RerankArguments",
+    "RetrievalTool",
+    "RetrievalToolArguments",
+    "RetrievalToolName",
+    "RetrievalToolRequest",
+    "RetrievalToolResult",
+    "ScoreKind",
+    "SemanticSearchArguments",
+    "ToolCapability",
+    "ToolEvidence",
+    "ToolRegistry",
+    "ToolStatus",
+    "build_retrieval_tool_registry",
+    "parse_retrieval_tool_arguments",
+    "retrieval_tool_capabilities",
+    "retrieval_tool_definitions",
+]

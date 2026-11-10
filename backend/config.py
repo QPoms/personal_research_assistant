@@ -41,9 +41,13 @@ class Settings(BaseSettings):
     personal_knowledge_research_enabled: bool = True
     personal_knowledge_allow_external_model: bool = False
     personal_knowledge_research_model: str | None = None
+    personal_knowledge_model_max_output_tokens: int = Field(
+        default=4096, ge=512, le=32768
+    )
     personal_knowledge_max_tasks: int = Field(default=3, ge=1, le=3)
-    personal_knowledge_max_retrieval_rounds: int = Field(default=2, ge=1, le=2)
+    personal_knowledge_max_retrieval_rounds: int = Field(default=4, ge=1, le=12)
     personal_knowledge_max_parallel_tasks: int = Field(default=3, ge=1, le=3)
+    personal_knowledge_max_tool_calls_per_task: int = Field(default=12, ge=1, le=24)
 
     def validate_for_personal_research(self) -> None:
         root = self.personal_knowledge_root.expanduser().resolve()

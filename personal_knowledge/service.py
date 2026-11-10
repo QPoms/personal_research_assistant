@@ -10,6 +10,8 @@ from typing import Any
 
 from .config import RetrievalCfg, knowledge_root
 from .retrieval.hybrid import HybridMarkdownRetriever
+from .retrieval.models import RetrievalHit
+from .tools import ToolEvidence, ToolRegistry, build_retrieval_tool_registry
 
 
 @dataclass(slots=True)
@@ -30,6 +32,23 @@ class LocalPersonalKnowledgeService:
                     )
         return self._retriever
 
+    def build_tool_registry(self) -> ToolRegistry:
+        """Expose SpecRAG's original in-process retrieval tool surface."""
+
+        return build_retrieval_tool_registry(self._get_retriever())
+
+    def validate_tool_evidence(self, evidence: ToolEvidence) -> dict[str, Any]:
+        """Revalidate a tool result against the immutable source on disk."""
+
+        item = self._validated_evidence(evidence)
+        item.update({
+            "retrieval_tool": evidence.match_kind,
+            "score": evidence.score,
+            "score_kind": evidence.score_kind,
+            "chunk_id": evidence.chunk_id,
+        })
+        return item
+
     def search(self, query: str) -> dict[str, Any]:
         query = query.strip()
         if not query:
@@ -41,12 +60,27 @@ class LocalPersonalKnowledgeService:
             query,
             limit=self.max_results,
         )
+        return self._result(query, hits, errors, retrieval_tool="hybrid_search")
+
+    @staticmethod
+    def _evidence_id(chunk_id: str) -> str:
+        return "E-" + hashlib.sha256(chunk_id.encode("utf-8")).hexdigest()[:16].upper()
+
+    def _result(
+        self,
+        query: str,
+        hits: tuple[RetrievalHit, ...],
+        errors: tuple[str, ...],
+        *,
+        retrieval_tool: str,
+    ) -> dict[str, Any]:
         evidence = [self._validated_evidence(hit) for hit in hits]
         valid = [item for item in evidence if item["source_valid"]]
         status = "completed" if valid and not errors else "partial" if valid else "unavailable"
         return {
             "status": status,
             "query": query,
+            "retrieval_tool": retrieval_tool,
             "release": self.cfg.target_release,
             "answer": None,
             "evidence": valid,
@@ -80,7 +114,7 @@ class LocalPersonalKnowledgeService:
             f"Lines {hit.line_start}-{hit.line_end}",
         ]
         return {
-            "evidence_id": "E-" + hashlib.sha256(hit.chunk_id.encode("utf-8")).hexdigest()[:16].upper(),
+            "evidence_id": LocalPersonalKnowledgeService._evidence_id(hit.chunk_id),
             "source_type": "personal",
             "title": f"3GPP TS {hit.specification}",
             "specification": hit.specification,
@@ -93,9 +127,9 @@ class LocalPersonalKnowledgeService:
             "excerpt": hit.excerpt,
             "source_path": hit.source_path,
             "document_sha256": hit.document_sha256,
-            "semantic_rank": hit.semantic_rank,
-            "lexical_rank": hit.lexical_rank,
-            "rrf_score": hit.rrf_score,
+            "semantic_rank": getattr(hit, "semantic_rank", None),
+            "lexical_rank": getattr(hit, "lexical_rank", None),
+            "rrf_score": getattr(hit, "rrf_score", 0.0),
             "source_valid": source_valid,
         }
 

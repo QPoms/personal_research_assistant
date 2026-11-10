@@ -1,6 +1,15 @@
 from types import SimpleNamespace
 
+from personal_knowledge.contracts import NativeFunctionCall
 from personal_knowledge.research.pipeline import LocalResearchPipeline
+from personal_knowledge.retrieval.models import CorpusScope
+from personal_knowledge.tools import (
+    RetrievalToolRequest,
+    RetrievalToolResult,
+    ToolEvidence,
+    parse_retrieval_tool_arguments,
+    retrieval_tool_definitions,
+)
 
 
 def _evidence(evidence_id: str, excerpt: str) -> dict[str, object]:
@@ -27,22 +36,86 @@ def _evidence(evidence_id: str, excerpt: str) -> dict[str, object]:
 
 class FakeCore:
     cfg = SimpleNamespace(target_release=17)
+    max_results = 6
 
-    def search(self, query: str):
-        if "exception" in query:
-            evidence = [
-                _evidence("E-SHARED", "Integrity protection applies to protected NAS messages."),
-                _evidence("E-EXCEPTION", "A narrowly defined exception applies before security activation."),
-            ]
-        else:
-            evidence = [
-                _evidence("E-SHARED", "Integrity protection applies to protected NAS messages."),
-            ]
-        return {
-            "status": "completed",
-            "evidence": evidence,
-            "unresolved_gaps": [],
-        }
+    def __init__(self):
+        self.calls = []
+        self.registry = FakeRegistry(self)
+        scope = CorpusScope(release=17)
+        self.retriever = SimpleNamespace(
+            corpus_scope=scope,
+            documents=(SimpleNamespace(specification="24.501"),),
+        )
+
+    def build_tool_registry(self):
+        return self.registry
+
+    def _get_retriever(self):
+        return self.retriever
+
+    @staticmethod
+    def validate_tool_evidence(item: ToolEvidence):
+        evidence_id = "E-EXCEPTION" if item.chunk_id == "chunk-exception" else "E-SHARED"
+        value = _evidence(evidence_id, item.excerpt)
+        value.update({
+            "chunk_id": item.chunk_id,
+            "retrieval_tool": item.match_kind,
+            "score": item.score,
+            "score_kind": item.score_kind,
+        })
+        return value
+
+
+class FakeRegistry:
+    definitions = retrieval_tool_definitions()
+
+    def __init__(self, core):
+        self.core = core
+
+    def parse_call(self, call: NativeFunctionCall):
+        if call.name not in {item.name for item in self.definitions}:
+            raise KeyError(call.name)
+        return parse_retrieval_tool_arguments(call.name, call.arguments)
+
+    def invoke(self, name: str, request: RetrievalToolRequest):
+        self.core.calls.append((name, request.query))
+        exception = "exception" in request.query
+        items = [self._tool_evidence(request, "chunk-shared", 1)]
+        if exception:
+            items.append(self._tool_evidence(request, "chunk-exception", 2))
+        return RetrievalToolResult(
+            request_id=request.request_id,
+            query_id=request.query_id,
+            tool_name=name,
+            status="completed",
+            corpus_scope=self.core.retriever.corpus_scope,
+            evidence=tuple(items),
+        )
+
+    @staticmethod
+    def _tool_evidence(request, chunk_id, rank):
+        exception = chunk_id == "chunk-exception"
+        return ToolEvidence(
+            evidence_id=f"{request.request_id}:{rank}",
+            chunk_id=chunk_id,
+            rank=rank,
+            match_kind="semantic_search" if exception else "keyword_search",
+            score=1.0 / rank,
+            score_kind="bm25",
+            specification="24.501",
+            release=17,
+            version="17.10.0",
+            source_path="data/3gpp/24.501.md",
+            document_sha256="A" * 64,
+            heading_path=("5.4", "NAS security"),
+            line_start=10,
+            line_end=12,
+            excerpt=(
+                "A narrowly defined exception applies before security activation."
+                if exception else
+                "Integrity protection applies to protected NAS messages."
+            ),
+        )
 
 
 class FakeStructuredModel:
@@ -64,19 +137,45 @@ class FakeStructuredModel:
                     },
                 ]
             }
-        if "local knowledge Researcher" in prompt and '"task_id":"T1"' in prompt:
+        if "SpecRAG local Researcher" in prompt and '"task_id":"T1"' in prompt and 'Evidence ledger: []' in prompt:
             return {
-                "status": "sufficient",
-                "supporting_evidence_ids": ["E-SHARED"],
-                "unresolved_gaps": [],
-                "followup_query": None,
+                "actions": [
+                    {"tool": "keyword_search", "arguments": {
+                        "query_id": "T1", "max_results": 6,
+                        "target_specifications": [],
+                        "lexical_query": "NAS integrity rule",
+                    }}
+                ],
+                "active_evidence_ids": [],
+                "submit_research_result": False,
             }
-        if "local knowledge Researcher" in prompt and '"task_id":"T2"' in prompt:
+        if "SpecRAG local Researcher" in prompt and '"task_id":"T2"' in prompt and 'Evidence ledger: []' in prompt:
+            return {
+                "actions": [
+                    {"tool": "semantic_search", "arguments": {
+                        "query_id": "T2", "max_results": 6,
+                        "target_specifications": [],
+                        "semantic_query": "NAS integrity exception",
+                    }}
+                ],
+                "active_evidence_ids": [],
+                "submit_research_result": False,
+            }
+        if "SpecRAG local Researcher" in prompt and '"task_id":"T1"' in prompt:
             return {
                 "status": "sufficient",
-                "supporting_evidence_ids": ["E-SHARED", "E-EXCEPTION"],
+                "active_evidence_ids": ["E-SHARED"],
                 "unresolved_gaps": [],
-                "followup_query": None,
+                "submit_research_result": True,
+                "actions": [],
+            }
+        if "SpecRAG local Researcher" in prompt and '"task_id":"T2"' in prompt:
+            return {
+                "status": "sufficient",
+                "active_evidence_ids": ["E-SHARED", "E-EXCEPTION"],
+                "unresolved_gaps": [],
+                "submit_research_result": True,
+                "actions": [],
             }
         if "grounded local-evidence synthesizer" in prompt:
             return {
@@ -102,8 +201,9 @@ class FakeStructuredModel:
 
 
 def test_pipeline_preserves_planner_tasks_and_merges_selected_evidence():
+    core = FakeCore()
     pipeline = LocalResearchPipeline(
-        FakeCore(),
+        core,
         FakeStructuredModel(),
         max_tasks=3,
         max_rounds=2,
@@ -121,3 +221,11 @@ def test_pipeline_preserves_planner_tasks_and_merges_selected_evidence():
     assert shared["task_ids"] == ["T1", "T2"]
     assert [finding.finding_id for finding in result.findings] == ["F1", "F2"]
     assert result.local_summary.startswith("The rule")
+    assert core.calls == [
+        ("keyword_search", "NAS integrity rule"),
+        ("semantic_search", "NAS integrity exception"),
+    ]
+    assert result.task_results[0].tool_calls[0]["tool"] == "keyword_search"
+    assert result.task_results[1].tool_calls[0]["tool"] == "semantic_search"
+    assert len(pipeline.tools.definitions) == 9
+    assert result.task_results[1].active_evidence_ids == ("E-SHARED", "E-EXCEPTION")
