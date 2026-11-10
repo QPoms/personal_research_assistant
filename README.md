@@ -145,7 +145,9 @@ Each run gets an isolated directory under `outputs/` containing `run.json`,
 an append-only `events.jsonl`, `agent-trace.json`, section drafts, and
 `report.md`. Runtime events use the versioned `run-event/v1` contract and a
 strictly increasing per-run sequence number so future API and frontend clients
-can replay from a known cursor. Relative output paths are
+can replay from a known cursor. The canonical run snapshot and event stream are
+committed atomically to `outputs/runtime.sqlite3`; the JSON files are readable
+projections rebuilt from that database. Relative output paths are
 anchored to the repository root. Inside Deep Agents, the same run directory is
 exposed only as virtual `/`; drafts use `/sections/...` and the final report
 uses `/report.md`.

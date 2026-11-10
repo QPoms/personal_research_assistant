@@ -8,6 +8,8 @@ import pytest
 import backend.research.run_manager as run_manager
 from backend.config import Settings
 from backend.events import JsonlRunEventStore, RunEventType
+from backend.runtime.run_state import RunStatus
+from backend.storage.sqlite_runtime import SQLiteRuntimeStore
 
 
 class _Graph:
@@ -55,6 +57,11 @@ async def test_agent_build_failure_transitions_run_to_failed(monkeypatch, tmp_pa
         RunEventType.RUN_FAILED,
     ]
     assert [event.seq for event in events] == [1, 2]
+    canonical = SQLiteRuntimeStore(tmp_path / "runtime.sqlite3").get_run(
+        "build-failure"
+    )
+    assert canonical is not None
+    assert canonical.status is RunStatus.FAILED
 
 
 @pytest.mark.asyncio
@@ -128,3 +135,8 @@ async def test_successful_run_uses_virtual_report_path(monkeypatch, tmp_path):
         RunEventType.RUN_COMPLETED,
     ]
     assert [event.seq for event in events] == [1, 2, 3, 4]
+    canonical_store = SQLiteRuntimeStore(tmp_path / "runtime.sqlite3")
+    canonical = canonical_store.get_run("success")
+    assert canonical is not None
+    assert canonical.status is RunStatus.COMPLETED
+    assert canonical_store.read_events("success") == events

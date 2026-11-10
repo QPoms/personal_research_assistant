@@ -25,8 +25,8 @@ not import another project's complete platform or adopt multi-tenant services.
    the append-only audit and replay stream.
 4. Long model/tool payloads stay in artifacts and evidence storage. Events carry
    identifiers and bounded metadata rather than entire documents.
-5. JSONL is the first single-process implementation. SQLite becomes the next
-   persistence adapter before background workers or an HTTP API are introduced.
+5. SQLite is the canonical local runtime ledger. `run.json` and `events.jsonl`
+   are readable projections generated after each atomic state/event commit.
 6. Tool execution is not blindly retried at the event layer. Idempotency and
    retry boundaries must be defined per tool.
 7. Authentication, workspaces, Redis, Celery, Docker and multi-tenancy remain

@@ -23,7 +23,20 @@ def test_relative_runtime_paths_are_anchored_to_project(monkeypatch, tmp_path):
     )
 
     assert settings.resolved_outputs_dir() == tmp_path / "outputs"
+    assert (
+        settings.resolved_runtime_database_path()
+        == tmp_path / "outputs" / "runtime.sqlite3"
+    )
     assert settings.resolved_personal_knowledge_root() == tmp_path / "knowledge"
+
+
+def test_explicit_runtime_database_path_is_anchored_to_project(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    settings = Settings(runtime_database_path="state/runtime.db")
+
+    assert (
+        settings.resolved_runtime_database_path() == tmp_path / "state" / "runtime.db"
+    )
 
 
 def test_personal_subpaths_cannot_escape_root(tmp_path):

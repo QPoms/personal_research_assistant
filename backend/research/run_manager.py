@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from backend.config import Settings
-from backend.events import JsonlRunEventStore, RunEventType
+from backend.events import RunEventType
+from backend.runtime.run_journal import RunJournal
+from backend.runtime.run_state import RunRecord, RunStage, RunStatus
 from backend.storage.run_paths import RunPaths, create_run_paths
 from deep_agents.builder import build_research_agent
 from deep_agents.paths import VIRTUAL_REPORT_PATH
@@ -40,74 +42,6 @@ def _last_message_text(result: Any) -> str:
     if isinstance(content, str):
         return content
     return str(content or "Research completed.")
-
-
-def _write_metadata(
-    paths: RunPaths,
-    *,
-    query: str,
-    source_mode: SourceMode,
-    started_at: datetime,
-    finished_at: datetime | None = None,
-    status: str,
-    stage: str,
-    web_research_cost: float = 0.0,
-    error: str | None = None,
-) -> None:
-    payload = {
-        "run_id": paths.run_id,
-        "query": query,
-        "source_mode": source_mode.value,
-        "status": status,
-        "stage": stage,
-        "started_at": started_at.isoformat(),
-        "finished_at": finished_at.isoformat() if finished_at else None,
-        "web_research_cost": web_research_cost,
-        "report_path": str(paths.report),
-        "error": error,
-    }
-    (paths.root / "run.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _record_run_state(
-    events: JsonlRunEventStore,
-    event_type: RunEventType,
-    paths: RunPaths,
-    *,
-    query: str,
-    source_mode: SourceMode,
-    started_at: datetime,
-    finished_at: datetime | None = None,
-    status: str,
-    stage: str,
-    web_research_cost: float = 0.0,
-    error: str | None = None,
-) -> None:
-    payload: dict[str, Any] = {"web_research_cost": web_research_cost}
-    if event_type is RunEventType.RUN_CREATED:
-        payload.update({"query": query, "source_mode": source_mode.value})
-    if error:
-        payload["error"] = error
-    events.append(
-        event_type,
-        status=status,
-        stage=stage,
-        payload=payload,
-    )
-    _write_metadata(
-        paths,
-        query=query,
-        source_mode=source_mode,
-        started_at=started_at,
-        finished_at=finished_at,
-        status=status,
-        stage=stage,
-        web_research_cost=web_research_cost,
-        error=error,
-    )
 
 
 def _compact_value(value: Any, *, limit: int = 1200) -> Any:
@@ -176,17 +110,19 @@ async def run_research(
         settings.validate_for_personal_research()
 
     paths = create_run_paths(settings.resolved_outputs_dir(), run_id)
-    events = JsonlRunEventStore(paths.events, paths.run_id)
     started_at = datetime.now(UTC)
-    _record_run_state(
-        events,
-        RunEventType.RUN_CREATED,
+    journal = RunJournal.create(
+        settings.resolved_runtime_database_path(),
         paths,
-        query=query,
-        source_mode=mode,
-        started_at=started_at,
-        status="running",
-        stage="building_agent",
+        RunRecord(
+            run_id=paths.run_id,
+            query=query,
+            source_mode=mode.value,
+            status=RunStatus.RUNNING,
+            stage=RunStage.BUILDING_AGENT,
+            started_at=started_at,
+            report_path=str(paths.report),
+        ),
     )
 
     user_request = (
@@ -197,7 +133,7 @@ async def run_research(
     )
 
     built = None
-    stage = "building_agent"
+    stage = RunStage.BUILDING_AGENT
     try:
         built = build_research_agent(
             settings,
@@ -205,30 +141,20 @@ async def run_research(
             run_dir=paths.root,
             guidelines=guidelines,
         )
-        stage = "running_agent"
-        _record_run_state(
-            events,
+        stage = RunStage.RUNNING_AGENT
+        journal.transition(
             RunEventType.RUN_STAGE_CHANGED,
-            paths,
-            query=query,
-            source_mode=mode,
-            started_at=started_at,
-            status="running",
+            status=RunStatus.RUNNING,
             stage=stage,
         )
         result = await built.graph.ainvoke(
             {"messages": [{"role": "user", "content": user_request}]}
         )
         _write_agent_trace(paths, result)
-        stage = "validating_report"
-        _record_run_state(
-            events,
+        stage = RunStage.VALIDATING_REPORT
+        journal.transition(
             RunEventType.RUN_STAGE_CHANGED,
-            paths,
-            query=query,
-            source_mode=mode,
-            started_at=started_at,
-            status="running",
+            status=RunStatus.RUNNING,
             stage=stage,
             web_research_cost=built.cost_tracker.total,
         )
@@ -242,16 +168,11 @@ async def run_research(
             )
         finished_at = datetime.now(UTC)
         summary = _last_message_text(result)
-        _record_run_state(
-            events,
+        journal.transition(
             RunEventType.RUN_COMPLETED,
-            paths,
-            query=query,
-            source_mode=mode,
-            started_at=started_at,
             finished_at=finished_at,
-            status="completed",
-            stage="completed",
+            status=RunStatus.COMPLETED,
+            stage=RunStage.COMPLETED,
             web_research_cost=built.cost_tracker.total if built else 0.0,
         )
         return ResearchRunResult(
@@ -264,32 +185,22 @@ async def run_research(
         )
     except (KeyboardInterrupt, asyncio.CancelledError) as exc:
         web_cost = built.cost_tracker.total if built else 0.0
-        _record_run_state(
-            events,
+        journal.transition(
             RunEventType.RUN_INTERRUPTED,
-            paths,
-            query=query,
-            source_mode=mode,
-            started_at=started_at,
             finished_at=datetime.now(UTC),
-            status="interrupted",
-            stage=stage,
+            status=RunStatus.INTERRUPTED,
+            stage=journal.record.stage,
             web_research_cost=web_cost,
             error=f"{type(exc).__name__}: {exc}",
         )
         raise
     except Exception as exc:
         web_cost = built.cost_tracker.total if built else 0.0
-        _record_run_state(
-            events,
+        journal.transition(
             RunEventType.RUN_FAILED,
-            paths,
-            query=query,
-            source_mode=mode,
-            started_at=started_at,
             finished_at=datetime.now(UTC),
-            status="failed",
-            stage=stage,
+            status=RunStatus.FAILED,
+            stage=journal.record.stage,
             web_research_cost=web_cost,
             error=f"{type(exc).__name__}: {exc}",
         )
