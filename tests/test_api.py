@@ -213,3 +213,78 @@ def test_api_serves_built_frontend_without_shadowing_api(monkeypatch, tmp_path):
     assert "Runtime console" in root.text
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
+
+
+class _StubSupervisor:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def start(self):
+        self.calls.append(("lifespan_start",))
+        return ()
+
+    async def shutdown(self):
+        self.calls.append(("lifespan_shutdown",))
+
+    async def start_run(self, query, source_mode, *, guidelines=None, run_id=None):
+        self.calls.append(("start", query, source_mode, guidelines, run_id))
+        return run_id or "generated"
+
+    async def resume_run(self, run_id):
+        self.calls.append(("resume", run_id))
+        return run_id
+
+    async def cancel_run(self, run_id, reason):
+        self.calls.append(("cancel", run_id, reason))
+        return True
+
+
+def test_run_control_api_delegates_to_supervisor(tmp_path):
+    settings = Settings(outputs_dir=tmp_path)
+    _seed_running_run(settings, "active")
+    supervisor = _StubSupervisor()
+
+    with TestClient(create_app(settings, supervisor=supervisor)) as client:  # type: ignore[arg-type]
+        created = client.post(
+            "/api/v1/runs",
+            json={
+                "query": "research topic",
+                "source_mode": "web",
+                "guidelines": ["Be concise"],
+                "run_id": "requested",
+            },
+        )
+        resumed = client.post("/api/v1/runs/active/resume")
+        cancelled = client.post(
+            "/api/v1/runs/active/cancel", json={"reason": "user request"}
+        )
+
+    assert created.status_code == 202
+    assert created.json() == {
+        "run_id": "requested",
+        "accepted": True,
+        "operation": "start",
+    }
+    assert resumed.status_code == 202
+    assert cancelled.status_code == 202
+    assert supervisor.calls == [
+        ("lifespan_start",),
+        ("start", "research topic", "web", ["Be concise"], "requested"),
+        ("resume", "active"),
+        ("cancel", "active", "user request"),
+        ("lifespan_shutdown",),
+    ]
+
+
+def test_run_control_api_validates_source_and_unknown_cancel(tmp_path):
+    settings = Settings(outputs_dir=tmp_path)
+    supervisor = _StubSupervisor()
+    client = TestClient(create_app(settings, supervisor=supervisor))  # type: ignore[arg-type]
+
+    invalid = client.post(
+        "/api/v1/runs", json={"query": "topic", "source_mode": "filesystem"}
+    )
+    missing = client.post("/api/v1/runs/missing/cancel", json={})
+
+    assert invalid.status_code == 422
+    assert missing.status_code == 404

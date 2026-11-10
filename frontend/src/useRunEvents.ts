@@ -7,7 +7,7 @@ interface RunEventStream {
   state: StreamState;
 }
 
-export function useRunEvents(runId: string | null): RunEventStream {
+export function useRunEvents(runId: string | null, revision = 0): RunEventStream {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [state, setState] = useState<StreamState>("closed");
   const cursor = useRef(0);
@@ -70,7 +70,7 @@ export function useRunEvents(runId: string | null): RunEventStream {
     };
 
     return () => source.close();
-  }, [runId]);
+  }, [runId, revision]);
 
   return { events, state };
 }

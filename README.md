@@ -24,11 +24,12 @@ generic `src/` container.
 
 ```text
 backend/                    # application entry point, settings, runs, outputs
-  api/                      # FastAPI run snapshots and replayable SSE
+  api/                      # FastAPI run control, snapshots and replayable SSE
   research/                 # run orchestration and report validation
-  runtime/                  # model construction
-  storage/                  # isolated run directories
+  runtime/                  # model construction, checkpoints, worker supervisor
+  storage/                  # isolated run directories and SQLite runtime ledger
 deep_agents/                # Chief Editor and Researcher team construction
+frontend/                   # local React runtime console
 personal_knowledge/         # embedded private-knowledge retrieval engine
   infrastructure/           # optional local vector-store adapter
   retrieval/                # corpus, BM25, dense, RRF, clauses, snapshots
@@ -39,9 +40,9 @@ tests/                      # unit and contract tests
 cli.py                      # repository-level development entry point
 ```
 
-There is currently no `frontend/`, `memory/`, `mcp-server/`, or `terraform/`
-directory because the project does not yet implement those capabilities. New
-top-level boundaries should be added only when executable code actually exists.
+There is currently no `memory/`, `mcp-server/`, or `terraform/` directory
+because the project does not implement those capabilities. New top-level
+boundaries should be added only when executable code actually exists.
 See [docs/architecture.md](docs/architecture.md) for the dependency rules and
 the comparison with the GPT Researcher reference repository.
 
@@ -172,10 +173,20 @@ the embedded SpecRAG pipeline, interrupts local model retry backoff, and commits
 the terminal `cancelled` snapshot together with a `run.cancelled` event.
 
 Start the local API with `uv run research-assistant-api`. Run snapshots are
-available at `GET /api/v1/runs/{run_id}`. The event endpoint
+available at `GET /api/v1/runs/{run_id}`. New runs are accepted by
+`POST /api/v1/runs`; active runs can be cooperatively cancelled with
+`POST /api/v1/runs/{run_id}/cancel`, and interrupted runs resume from their
+latest durable checkpoint with `POST /api/v1/runs/{run_id}/resume`. The event endpoint
 `GET /api/v1/runs/{run_id}/events` first replays SQLite history and then tails
 new events. Clients resume with `after_seq` or the SSE `Last-Event-ID` header;
 the durable per-run sequence is used as the SSE event ID.
+
+The API owns a lightweight in-process worker supervisor rather than Celery or
+Redis. Every active run has a SQLite worker lease and heartbeat. On graceful
+shutdown, active tasks are persisted as interrupted; on restart, the Watchdog
+marks expired leases interrupted so the same run can be resumed. Heartbeats
+are operational liveness metadata and do not change model or research request
+timeouts.
 
 The minimal runtime console lives in `frontend/`. Build it once, then the same
 FastAPI process serves the production assets and API on port 8000:
@@ -199,8 +210,9 @@ uv run pytest
 ```
 
 The suite covers source authorization, evidence normalization, upstream Web
-engine contracts, embedded retrieval and source verification, prompts, and
-run-path isolation. Live Web acceptance requires provider credentials.
+engine contracts, embedded retrieval and source verification, prompts,
+run-path isolation, checkpoints, worker leases, cancellation, Watchdog recovery,
+and HTTP/SSE runtime control. Live Web acceptance requires provider credentials.
 
 ## Upstream reference
 

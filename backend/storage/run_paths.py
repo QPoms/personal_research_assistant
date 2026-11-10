@@ -24,10 +24,14 @@ def _safe_run_id(run_id: str) -> str:
     return run_id
 
 
+def generate_run_id() -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return f"{timestamp}-{secrets.token_hex(4)}"
+
+
 def create_run_paths(outputs_dir: Path, run_id: str | None = None) -> RunPaths:
     if run_id is None:
-        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        run_id = f"{timestamp}-{secrets.token_hex(4)}"
+        run_id = generate_run_id()
     run_id = _safe_run_id(run_id)
 
     root = outputs_dir.resolve() / f"run_{run_id}"
@@ -57,4 +61,4 @@ def load_run_paths(outputs_dir: Path, run_id: str) -> RunPaths:
     )
 
 
-__all__ = ["RunPaths", "create_run_paths", "load_run_paths"]
+__all__ = ["RunPaths", "create_run_paths", "generate_run_id", "load_run_paths"]

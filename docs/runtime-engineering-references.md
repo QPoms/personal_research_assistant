@@ -41,6 +41,11 @@ not import another project's complete platform or adopt multi-tenant services.
     database. The runtime ledger remains the source of lifecycle truth, while
     the checkpoint database contains provider-independent graph continuation
     state keyed by the same run ID.
+11. Local background execution uses an in-process async supervisor. SQLite
+    worker leases and heartbeats make abandoned work detectable; a Watchdog
+    converts expired running leases into resumable interruptions. This retains
+    the reliability boundary without introducing Celery, Redis, Docker, or
+    multi-worker coordination before the product needs them.
 
 ## Source links
 

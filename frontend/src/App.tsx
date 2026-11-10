@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getRun, listRuns } from "./api";
+import { cancelRun, getRun, listRuns, resumeRun } from "./api";
 import type { RunEvent, RunRecord, RunStatus, StreamState } from "./types";
 import { useRunEvents } from "./useRunEvents";
 import "./styles.css";
@@ -103,7 +103,9 @@ function App() {
   const [selected, setSelected] = useState<RunRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { events, state: streamState } = useRunEvents(selectedId);
+  const [streamRevision, setStreamRevision] = useState(0);
+  const [operation, setOperation] = useState<"resume" | "cancel" | null>(null);
+  const { events, state: streamState } = useRunEvents(selectedId, streamRevision);
 
   const refreshRuns = useCallback(async () => {
     setError(null);
@@ -144,6 +146,26 @@ function App() {
       evidence: events.filter((event) => event.event_type === "evidence.selected").length,
     }),
     [events],
+  );
+
+  const controlRun = useCallback(
+    async (nextOperation: "resume" | "cancel") => {
+      if (!selectedId) return;
+      setOperation(nextOperation);
+      setError(null);
+      try {
+        if (nextOperation === "resume") await resumeRun(selectedId);
+        else await cancelRun(selectedId);
+        setStreamRevision((current) => current + 1);
+        await refreshRuns();
+        setSelected(await getRun(selectedId));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "运行控制操作失败");
+      } finally {
+        setOperation(null);
+      }
+    },
+    [refreshRuns, selectedId],
   );
 
   return (
@@ -213,8 +235,30 @@ function App() {
                   )}
                 </div>
               </div>
-              <div className={`stream-state stream-state--${streamState}`} aria-live="polite">
-                <i /> {STREAM_LABELS[streamState]}
+              <div className="run-hero__controls">
+                <div className={`stream-state stream-state--${streamState}`} aria-live="polite">
+                  <i /> {STREAM_LABELS[streamState]}
+                </div>
+                {displayStatus === "interrupted" && (
+                  <button
+                    className="run-action run-action--primary"
+                    type="button"
+                    disabled={operation !== null}
+                    onClick={() => void controlRun("resume")}
+                  >
+                    {operation === "resume" ? "正在恢复…" : "从断点恢复"}
+                  </button>
+                )}
+                {displayStatus === "running" && (
+                  <button
+                    className="run-action"
+                    type="button"
+                    disabled={operation !== null}
+                    onClick={() => void controlRun("cancel")}
+                  >
+                    {operation === "cancel" ? "正在取消…" : "取消运行"}
+                  </button>
+                )}
               </div>
             </section>
 

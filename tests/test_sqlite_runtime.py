@@ -82,3 +82,35 @@ def test_sqlite_store_assigns_monotonic_sequences_under_concurrency(tmp_path):
 
     assert sorted(event.seq for event in events) == list(range(2, 14))
     assert [event.seq for event in store.read_events("run-1")] == list(range(1, 14))
+
+
+def test_sqlite_store_tracks_worker_lease_lifecycle(tmp_path):
+    store = SQLiteRuntimeStore(tmp_path / "runtime.sqlite3")
+    store.commit(_record(), RunEventType.RUN_CREATED)
+
+    claimed = store.claim_worker("run-1", "worker-a")
+    heartbeat = store.heartbeat_worker("run-1", "worker-a")
+
+    assert claimed.state == "active"
+    assert heartbeat.heartbeat_at >= claimed.heartbeat_at
+    assert store.get_worker_lease("run-1") == heartbeat
+    assert store.stale_worker_leases(before=datetime.now(UTC)) == (heartbeat,)
+
+    store.finish_worker("run-1", "worker-a", state="finished")
+    finished = store.get_worker_lease("run-1")
+    assert finished is not None
+    assert finished.state == "finished"
+    assert store.stale_worker_leases(before=datetime.now(UTC)) == ()
+
+
+def test_sqlite_store_rejects_unknown_or_inactive_worker_lease(tmp_path):
+    store = SQLiteRuntimeStore(tmp_path / "runtime.sqlite3")
+
+    with pytest.raises(LookupError, match="unknown run"):
+        store.claim_worker("missing", "worker-a")
+
+    store.commit(_record(), RunEventType.RUN_CREATED)
+    store.claim_worker("run-1", "worker-a")
+    store.finish_worker("run-1", "worker-a", state="finished")
+    with pytest.raises(LookupError, match="unavailable"):
+        store.heartbeat_worker("run-1", "worker-a")

@@ -125,6 +125,7 @@ button { font: inherit; }
     #080b10;
 }
 .run-hero { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; }
+.run-hero__controls { display: grid; justify-items: end; gap: 12px; }
 .run-hero h2 { max-width: 850px; margin: 12px 0 18px; font-size: clamp(25px, 3vw, 40px); line-height: 1.2; letter-spacing: -0.04em; }
 .run-hero__tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .run-hero__tags span { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; color: #aab6c7; font: 11px "Cascadia Code", Consolas, monospace; }
@@ -133,6 +134,10 @@ button { font: inherit; }
 .stream-state { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .stream-state--error i { background: var(--warning); box-shadow: 0 0 0 5px rgba(245, 199, 107, .12); }
 .stream-state--closed i { background: #657184; box-shadow: none; }
+.run-action { padding: 9px 13px; border: 1px solid #344155; border-radius: 7px; color: #cad3df; background: #111721; font: 600 11px "Cascadia Code", Consolas, monospace; cursor: pointer; }
+.run-action:hover:not(:disabled) { border-color: #5a6a80; color: #fff; }
+.run-action--primary { border-color: rgba(99, 230, 190, .35); color: var(--accent); background: rgba(99, 230, 190, .08); }
+.run-action:disabled { cursor: wait; opacity: .6; }
 
 .metrics {
   display: grid;

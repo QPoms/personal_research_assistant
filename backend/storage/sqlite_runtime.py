@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from backend.events import RunEvent, RunEventType
 from backend.runtime.run_state import RunRecord, transition_run_record
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerLease:
+    run_id: str
+    worker_id: str
+    state: str
+    started_at: datetime
+    heartbeat_at: datetime
 
 
 class SQLiteRuntimeStore:
@@ -52,6 +63,17 @@ class SQLiteRuntimeStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_run_events_type
                     ON run_events(run_id, event_type, seq);
+
+                CREATE TABLE IF NOT EXISTS worker_leases (
+                    run_id TEXT PRIMARY KEY,
+                    worker_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    heartbeat_at TEXT NOT NULL,
+                    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_leases_state_heartbeat
+                    ON worker_leases(state, heartbeat_at);
                 """
             )
 
@@ -189,5 +211,92 @@ class SQLiteRuntimeStore:
             rows = connection.execute(sql, parameters).fetchall()
         return tuple(RunEvent.model_validate_json(row["event_json"]) for row in rows)
 
+    def claim_worker(self, run_id: str, worker_id: str) -> WorkerLease:
+        """Create or replace the active local-worker lease for a known run."""
 
-__all__ = ["SQLiteRuntimeStore"]
+        now = datetime.now(UTC)
+        with self._connect() as connection:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                is None
+            ):
+                raise LookupError(f"unknown run: {run_id}")
+            connection.execute(
+                """
+                INSERT INTO worker_leases(
+                    run_id, worker_id, state, started_at, heartbeat_at
+                ) VALUES (?, ?, 'active', ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    worker_id = excluded.worker_id,
+                    state = 'active',
+                    started_at = excluded.started_at,
+                    heartbeat_at = excluded.heartbeat_at
+                """,
+                (run_id, worker_id, now.isoformat(), now.isoformat()),
+            )
+        return WorkerLease(run_id, worker_id, "active", now, now)
+
+    def heartbeat_worker(self, run_id: str, worker_id: str) -> WorkerLease:
+        now = datetime.now(UTC)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE worker_leases
+                SET heartbeat_at = ?
+                WHERE run_id = ? AND worker_id = ? AND state = 'active'
+                """,
+                (now.isoformat(), run_id, worker_id),
+            )
+            if cursor.rowcount != 1:
+                raise LookupError(f"active worker lease is unavailable: {run_id}")
+            row = connection.execute(
+                "SELECT * FROM worker_leases WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        return self._lease_from_row(row)
+
+    def finish_worker(self, run_id: str, worker_id: str, *, state: str) -> None:
+        if state not in {"finished", "stale"}:
+            raise ValueError("worker lease state must be finished or stale")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE worker_leases
+                SET state = ?
+                WHERE run_id = ? AND worker_id = ?
+                """,
+                (state, run_id, worker_id),
+            )
+
+    def get_worker_lease(self, run_id: str) -> WorkerLease | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_leases WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        return self._lease_from_row(row) if row else None
+
+    def stale_worker_leases(self, *, before: datetime) -> tuple[WorkerLease, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM worker_leases
+                WHERE state = 'active' AND heartbeat_at < ?
+                ORDER BY heartbeat_at
+                """,
+                (before.isoformat(),),
+            ).fetchall()
+        return tuple(self._lease_from_row(row) for row in rows)
+
+    @staticmethod
+    def _lease_from_row(row: sqlite3.Row) -> WorkerLease:
+        return WorkerLease(
+            run_id=row["run_id"],
+            worker_id=row["worker_id"],
+            state=row["state"],
+            started_at=datetime.fromisoformat(row["started_at"]),
+            heartbeat_at=datetime.fromisoformat(row["heartbeat_at"]),
+        )
+
+
+__all__ = ["SQLiteRuntimeStore", "WorkerLease"]

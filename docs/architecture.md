@@ -43,8 +43,11 @@ personal_knowledge
 Responsibilities:
 
 - `backend/` owns application configuration, command-line/API composition,
-  the SQLite runtime ledger, replayable SSE, run lifecycle, output paths, and
-  report validation.
+  the SQLite runtime ledger, replayable SSE, run lifecycle, local worker
+  supervision, output paths, and report validation.
+- `frontend/` owns the independently buildable local React runtime console. It
+  reads durable snapshots/events and issues resume and cancel commands;
+  it does not own run state.
 - `deep_agents/` owns Chief Editor and Researcher prompts and construction. It
   uses Deep Agents' native Todo, filesystem, and subagent mechanisms.
 - `research_tools/` is the anti-corruption layer around external engines. It
@@ -75,7 +78,8 @@ privacy model.
 
 ## Rules for future folders
 
-1. Add `frontend/` only with an independently runnable frontend application.
+1. Keep `frontend/` independently buildable and dependent only on the HTTP/SSE
+   contracts exposed by `backend/`.
 2. Add `evals/` when repeatable evaluation datasets and runners exist.
 3. Add `mcp-server/` only if MCP becomes a supported external interface; the
    Personal Knowledge integration remains an ordinary local Python Tool.
