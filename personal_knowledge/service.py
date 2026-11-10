@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
-from pathlib import Path
 from threading import Lock
 from typing import Any
 
@@ -41,19 +40,23 @@ class LocalPersonalKnowledgeService:
         """Revalidate a tool result against the immutable source on disk."""
 
         item = self._validated_evidence(evidence)
-        item.update({
-            "retrieval_tool": evidence.match_kind,
-            "score": evidence.score,
-            "score_kind": evidence.score_kind,
-            "chunk_id": evidence.chunk_id,
-        })
+        item.update(
+            {
+                "retrieval_tool": evidence.match_kind,
+                "score": evidence.score,
+                "score_kind": evidence.score_kind,
+                "chunk_id": evidence.chunk_id,
+            }
+        )
         return item
 
     def search(self, query: str) -> dict[str, Any]:
         query = query.strip()
         if not query:
             raise ValueError("query must not be empty")
-        request_id = "PK-" + hashlib.sha256(query.encode("utf-8")).hexdigest()[:12].upper()
+        request_id = (
+            "PK-" + hashlib.sha256(query.encode("utf-8")).hexdigest()[:12].upper()
+        )
         retriever = self._get_retriever()
         hits, errors = retriever.hybrid_hits(
             request_id,
@@ -76,7 +79,13 @@ class LocalPersonalKnowledgeService:
     ) -> dict[str, Any]:
         evidence = [self._validated_evidence(hit) for hit in hits]
         valid = [item for item in evidence if item["source_valid"]]
-        status = "completed" if valid and not errors else "partial" if valid else "unavailable"
+        status = (
+            "completed"
+            if valid and not errors
+            else "partial"
+            if valid
+            else "unavailable"
+        )
         return {
             "status": status,
             "query": query,
@@ -86,7 +95,9 @@ class LocalPersonalKnowledgeService:
             "evidence": valid,
             "evidence_status": "retrieved" if valid else "insufficient",
             "unresolved_gaps": list(errors),
-            "failure": None if valid else {"category": "no_valid_evidence", "message": "; ".join(errors)},
+            "failure": None
+            if valid
+            else {"category": "no_valid_evidence", "message": "; ".join(errors)},
         }
 
     @staticmethod
@@ -132,4 +143,3 @@ class LocalPersonalKnowledgeService:
             "rrf_score": getattr(hit, "rrf_score", 0.0),
             "source_valid": source_valid,
         }
-

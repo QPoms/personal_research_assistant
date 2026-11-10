@@ -7,6 +7,7 @@ embedded private-knowledge tool. See ``THIRD_PARTY_NOTICES.md``.
 
 from __future__ import annotations
 
+from deep_agents.paths import VIRTUAL_REPORT_PATH, VIRTUAL_SECTIONS_DIR
 from research_tools.source_policy import SourceMode, coerce_source_mode
 
 
@@ -26,11 +27,13 @@ Workflow:
 3. Delegate: issue independent section tasks to the `researcher` subagent in
    one turn where possible. Each task must include the section topic, overall
    topic, authorized source mode, questions to answer, and exact output path
-   `sections/<two-digit-index>-<slug>.md`.
-4. Review: read every draft with `read_file`. Check relevance, evidence,
+   `{virtual_sections_dir}/<two-digit-index>-<slug>.md`. This is a virtual absolute path;
+   never prepend a host path, drive letter, `outputs/`, or the run directory.
+4. Review: read every draft with `read_file` using its `{virtual_sections_dir}/...` virtual
+   path. Check relevance, evidence,
    preserved citations, contradictions, and unresolved gaps. Delegate at most
    {max_revision_rounds} revision round(s) with concrete feedback.
-5. Assemble: write `report.md` with title, introduction, table of contents,
+5. Assemble: write `{virtual_report_path}` with title, introduction, table of contents,
    edited section drafts, comparative analysis where relevant, limitations,
    conclusion, and references. Keep Web URLs and Personal Evidence IDs tied to
    their claims. Do not invent citations or merge incompatible citation IDs.
@@ -40,7 +43,8 @@ Rules:
 - Never write a research section from unsupported model knowledge.
 - Preserve partial valid results when another source or subtask fails.
 - Keep chat responses short; full work belongs in files.
-- When finished, return a short summary and the path `report.md`.
+- All filesystem paths must be virtual absolute paths rooted at `/`.
+- When finished, return a short summary and the path `{virtual_report_path}`.
 {guidelines}
 """
 
@@ -87,7 +91,8 @@ and an exact draft path.
 Authorized source mode: {source_mode}
 {mode_steps}
 
-3. Write a well-structured Markdown draft to the assigned path using
+3. Write a well-structured Markdown draft to the assigned `{virtual_sections_dir}/...`
+virtual absolute path using
 `write_file`, starting with a `##` heading. Record limitations, unresolved gaps,
 and any source/tool failures without discarding valid findings.
 4. Reply only with a <=150-word summary, source types used, evidence/source
@@ -114,6 +119,8 @@ def build_chief_prompt(
         source_instructions=_SOURCE_INSTRUCTIONS[mode],
         max_revision_rounds=max_revision_rounds,
         guidelines=guideline_text,
+        virtual_report_path=VIRTUAL_REPORT_PATH,
+        virtual_sections_dir=VIRTUAL_SECTIONS_DIR,
     )
 
 
@@ -122,6 +129,5 @@ def build_researcher_prompt(source_mode: SourceMode | str) -> str:
     return RESEARCHER_PROMPT.format(
         source_mode=mode.value,
         mode_steps=_RESEARCHER_MODE_STEPS[mode],
+        virtual_sections_dir=VIRTUAL_SECTIONS_DIR,
     )
-
-

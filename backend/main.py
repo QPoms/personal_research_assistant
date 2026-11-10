@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from pathlib import Path
+import os
+import subprocess
 import sys
 
 from backend.config import load_settings
@@ -14,7 +15,9 @@ from research_tools.source_policy import SourceMode
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run an evidence-grounded research task")
+    parser = argparse.ArgumentParser(
+        description="Run an evidence-grounded research task"
+    )
     parser.add_argument("--query", required=True, help="Research question or topic")
     parser.add_argument(
         "--source-mode",
@@ -30,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--run-id", help="Optional caller-provided run identifier")
     return parser
+
+
+def _restart_in_utf8_mode() -> int:
+    return subprocess.call(  # noqa: S603 - fixed interpreter/module argv
+        [sys.executable, "-X", "utf8", "-m", "backend.main", *sys.argv[1:]]
+    )
 
 
 async def _async_main(args: argparse.Namespace) -> int:
@@ -52,6 +61,8 @@ async def _async_main(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None and os.name == "nt" and not sys.flags.utf8_mode:
+        return _restart_in_utf8_mode()
     args = build_parser().parse_args(argv)
     try:
         return asyncio.run(_async_main(args))
@@ -70,5 +81,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

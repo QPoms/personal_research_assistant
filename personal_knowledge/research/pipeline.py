@@ -43,18 +43,25 @@ from .models import (
 )
 
 
-def _compact_evidence(items: list[dict[str, Any]], *, limit: int = 10) -> list[dict[str, Any]]:
+def _compact_evidence(
+    items: list[dict[str, Any]],
+    *,
+    limit: int = 10,
+    excerpt_characters: int = 1200,
+) -> list[dict[str, Any]]:
     compact: list[dict[str, Any]] = []
     for item in items[:limit]:
-        compact.append({
-            "evidence_id": item.get("evidence_id"),
-            "title": item.get("title"),
-            "specification": item.get("specification"),
-            "release": item.get("release"),
-            "version": item.get("version"),
-            "locator": item.get("locator"),
-            "excerpt": str(item.get("excerpt") or "")[:1200],
-        })
+        compact.append(
+            {
+                "evidence_id": item.get("evidence_id"),
+                "title": item.get("title"),
+                "specification": item.get("specification"),
+                "release": item.get("release"),
+                "version": item.get("version"),
+                "locator": item.get("locator"),
+                "excerpt": str(item.get("excerpt") or "")[:excerpt_characters],
+            }
+        )
     return compact
 
 
@@ -88,12 +95,16 @@ Question: {question}
             plan = ResearchPlan.model_validate({"tasks": tasks[: self.max_tasks]})
             return plan, ()
         except Exception as exc:
-            fallback = ResearchPlan(tasks=(ResearchTask(
-                task_id="T1",
-                objective=question,
-                question=question,
-                dependencies=(),
-            ),))
+            fallback = ResearchPlan(
+                tasks=(
+                    ResearchTask(
+                        task_id="T1",
+                        objective=question,
+                        question=question,
+                        dependencies=(),
+                    ),
+                )
+            )
             return fallback, (f"planner_fallback: {type(exc).__name__}: {exc}",)
 
 
@@ -127,11 +138,17 @@ class LocalRetrievalToolRegistry:
         normalized = dict(arguments)
         normalized.setdefault("query_id", query_id)
         normalized.setdefault("max_results", min(self.core.max_results, 12))
-        parsed = self.registry.parse_call(NativeFunctionCall(
-            call_id=call_id,
-            name=name,
-            arguments=normalized,
-        ))
+        parsed = self.registry.parse_call(
+            NativeFunctionCall(
+                call_id=call_id,
+                name=name,
+                arguments=normalized,
+            )
+        )
+        if parsed.query_id != query_id:
+            raise ValueError(
+                f"unknown query_id: {parsed.query_id}; expected {query_id}"
+            )
         return name, parsed
 
     def execute(
@@ -197,7 +214,9 @@ class LocalRetrievalToolRegistry:
             reference_clause = arguments.target_clause
             cursor = arguments.cursor
         elif not isinstance(arguments, ExpandSourceContextArguments):
-            raise TypeError(f"unsupported retrieval arguments: {type(arguments).__name__}")
+            raise TypeError(
+                f"unsupported retrieval arguments: {type(arguments).__name__}"
+            )
 
         request = RetrievalToolRequest(
             request_id=request_id,
@@ -224,9 +243,7 @@ class LocalRetrievalToolRegistry:
             if evidence["source_valid"]:
                 validated.append(evidence)
             else:
-                errors.append(
-                    f"source validation rejected chunk {item.chunk_id}"
-                )
+                errors.append(f"source validation rejected chunk {item.chunk_id}")
         status = result.status
         if validated and errors:
             status = "partial"
@@ -268,15 +285,31 @@ class LocalTaskResearcher:
         candidates: dict[str, dict[str, Any]],
         *,
         active_ids: tuple[str, ...],
+        pending_ids: tuple[str, ...],
+        tool_history: list[dict[str, Any]],
         dependency_context: list[dict[str, Any]],
         allow_actions: bool,
         remaining_tool_calls: int,
     ) -> dict[str, Any]:
         active = set(active_ids)
+        recent_pending = set(pending_ids[-12:])
         evidence_payload = []
         for evidence_id, item in candidates.items():
-            value = dict(_compact_evidence([item], limit=1)[0])
-            value["status"] = "active" if evidence_id in active else "candidate"
+            if evidence_id in active:
+                status = "active"
+                excerpt_characters = 4000
+            elif evidence_id in recent_pending:
+                status = "pending"
+                excerpt_characters = 2400
+            else:
+                status = "inactive"
+                excerpt_characters = 320
+            value = dict(
+                _compact_evidence(
+                    [item], limit=1, excerpt_characters=excerpt_characters
+                )[0]
+            )
+            value["status"] = status
             value["retrieval_tool"] = item.get("retrieval_tool")
             evidence_payload.append(value)
         prompt = f"""You are the SpecRAG local Researcher for exactly one task.
@@ -284,8 +317,14 @@ Maintain a bounded active evidence set while retaining all observed candidates.
 Review evidence before acting. You may invoke the original retrieval tools,
 including clause lookup/navigation, cross-reference traversal, source-context
 expansion, HyDE, and reranking. Seed arguments always use observed Evidence IDs,
-never chunk IDs. Target specifications must be grounded in the task, dependency
+never chunk IDs. Evidence IDs in validated dependency context are trusted
+navigation seeds but do not enter this task's candidate pool unless a tool
+returns them. Target specifications must be grounded in the task, dependency
 evidence, or observed evidence. Do not invent citations or clause numbers.
+Every action arguments.query_id must exactly equal the current Task task_id.
+Do not repeat a call already present in Tool history. If a prior clause or
+navigation result has next_cursor, use that cursor to retrieve the next page
+when more of the same clause is required.
 
 This Researcher performs its own sufficiency decision. There is no downstream
 Validator. Set submit_research_result=true only after choosing the evidence that
@@ -306,11 +345,41 @@ Registered tool definitions: {json.dumps(self.tools.definitions, ensure_ascii=Fa
 Task: {task.model_dump_json()}
 Dependency context: {json.dumps(_compact_evidence(dependency_context, limit=6), ensure_ascii=False)}
 Evidence ledger: {json.dumps(evidence_payload, ensure_ascii=False)}
+Tool history: {json.dumps(tool_history, ensure_ascii=False)}
 Actions allowed: {str(allow_actions).lower()}
 Remaining tool-call budget: {remaining_tool_calls}
 Maximum active evidence: {self.max_selected_evidence}
 """
         return self.model.complete_json(prompt)
+
+    @staticmethod
+    def _call_signature(
+        name: str,
+        arguments: RetrievalToolArguments,
+    ) -> tuple[Any, ...]:
+        values = arguments.model_dump(mode="json", exclude={"max_results"})
+        normalized: list[tuple[str, Any]] = []
+        for field, value in sorted(values.items()):
+            if isinstance(value, str):
+                value = value.casefold().strip()
+            elif isinstance(value, list):
+                value = tuple(sorted(value))
+            normalized.append((field, value))
+        return (name, *normalized)
+
+    @staticmethod
+    def _tool_history(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "tool": item.get("tool"),
+                "arguments": item.get("arguments"),
+                "status": item.get("status"),
+                "new_evidence_ids": item.get("new_evidence_ids") or [],
+                "next_cursor": item.get("next_cursor"),
+                "errors": item.get("errors") or [],
+            }
+            for item in tool_calls
+        ]
 
     @staticmethod
     def _grounded_specifications(
@@ -349,9 +418,11 @@ Maximum active evidence: {self.max_selected_evidence}
     ) -> tuple[str, ...]:
         if not isinstance(raw, list):
             return ()
-        return tuple(dict.fromkeys(
-            item for item in raw if isinstance(item, str) and item in candidates
-        ))[:limit]
+        return tuple(
+            dict.fromkeys(
+                item for item in raw if isinstance(item, str) and item in candidates
+            )
+        )[:limit]
 
     @staticmethod
     def _requirements(
@@ -370,7 +441,10 @@ Maximum active evidence: {self.max_selected_evidence}
                 for evidence_id in normalized.get("evidence_ids") or ()
                 if evidence_id in candidates
             )
-            if normalized.get("coverage_status") != "missing" and not normalized["evidence_ids"]:
+            if (
+                normalized.get("coverage_status") != "missing"
+                and not normalized["evidence_ids"]
+            ):
                 normalized["coverage_status"] = "missing"
             try:
                 requirements.append(EvidenceRequirement.model_validate(normalized))
@@ -385,10 +459,19 @@ Maximum active evidence: {self.max_selected_evidence}
         dependency_context: list[dict[str, Any]],
     ) -> _ResearcherWorkProduct:
         candidates: dict[str, dict[str, Any]] = {}
+        dependency_candidates = {
+            str(item["evidence_id"]): item
+            for item in dependency_context
+            if item.get("source_valid") is True
+            and item.get("evidence_id")
+            and item.get("chunk_id")
+        }
         gaps: list[str] = []
         rounds = 0
         tool_calls: list[dict[str, Any]] = []
         active_ids: tuple[str, ...] = ()
+        pending_ids: list[str] = []
+        seen_signatures: set[tuple[Any, ...]] = set()
         final_assessment: dict[str, Any] = {}
         submitted = False
 
@@ -399,13 +482,17 @@ Maximum active evidence: {self.max_selected_evidence}
                     task,
                     candidates,
                     active_ids=active_ids,
+                    pending_ids=tuple(pending_ids),
+                    tool_history=self._tool_history(tool_calls),
                     dependency_context=dependency_context,
                     allow_actions=True,
                     remaining_tool_calls=remaining,
                 )
             except Exception as exc:
                 gaps.append(f"researcher_fallback: {type(exc).__name__}: {exc}")
-                review = {"actions": [self._fallback_action(task)]} if not candidates else {}
+                review = (
+                    {"actions": [self._fallback_action(task)]} if not candidates else {}
+                )
 
             selected = self._select_ids(
                 review.get("active_evidence_ids"),
@@ -414,6 +501,7 @@ Maximum active evidence: {self.max_selected_evidence}
             )
             if selected or review.get("active_evidence_ids") == []:
                 active_ids = selected
+                pending_ids.clear()
             final_assessment = review
             if review.get("submit_research_result") is True and active_ids:
                 submitted = True
@@ -436,15 +524,21 @@ Maximum active evidence: {self.max_selected_evidence}
                         call_id=call_id,
                         query_id=task.task_id,
                     )
-                    audit.update({
-                        "tool": name,
-                        "arguments": arguments.model_dump(mode="json"),
-                    })
+                    audit.update(
+                        {
+                            "tool": name,
+                            "arguments": arguments.model_dump(mode="json"),
+                        }
+                    )
+                    signature = self._call_signature(name, arguments)
+                    if signature in seen_signatures:
+                        raise ValueError("duplicate retrieval call")
+                    seen_signatures.add(signature)
                     payload = self.tools.execute(
                         name,
                         arguments,
                         request_id=call_id,
-                        candidates=candidates,
+                        candidates={**dependency_candidates, **candidates},
                         grounded_specifications=self._grounded_specifications(
                             task, dependency_context, candidates
                         ),
@@ -457,22 +551,29 @@ Maximum active evidence: {self.max_selected_evidence}
                         if evidence_id not in candidates:
                             candidates[evidence_id] = item
                             new_ids.append(evidence_id)
+                            pending_ids.append(evidence_id)
                     gaps.extend(str(item) for item in payload["errors"])
-                    audit.update({
-                        "status": payload["status"],
-                        "evidence_ids": observed_ids,
-                        "new_evidence_ids": new_ids,
-                        "next_cursor": payload["next_cursor"],
-                        "errors": payload["errors"],
-                    })
+                    audit.update(
+                        {
+                            "status": payload["status"],
+                            "evidence_ids": observed_ids,
+                            "new_evidence_ids": new_ids,
+                            "next_cursor": payload["next_cursor"],
+                            "errors": payload["errors"],
+                        }
+                    )
                 except Exception as exc:
-                    audit.update({
-                        "tool": raw_action.get("tool") if isinstance(raw_action, dict) else None,
-                        "status": "rejected",
-                        "evidence_ids": [],
-                        "new_evidence_ids": [],
-                        "errors": [f"{type(exc).__name__}: {exc}"],
-                    })
+                    audit.update(
+                        {
+                            "tool": raw_action.get("tool")
+                            if isinstance(raw_action, dict)
+                            else None,
+                            "status": "rejected",
+                            "evidence_ids": [],
+                            "new_evidence_ids": [],
+                            "errors": [f"{type(exc).__name__}: {exc}"],
+                        }
+                    )
                     gaps.extend(audit["errors"])
                 tool_calls.append(audit)
                 executed += 1
@@ -485,6 +586,8 @@ Maximum active evidence: {self.max_selected_evidence}
                     task,
                     candidates,
                     active_ids=active_ids,
+                    pending_ids=tuple(pending_ids),
+                    tool_history=self._tool_history(tool_calls),
                     dependency_context=dependency_context,
                     allow_actions=False,
                     remaining_tool_calls=0,
@@ -497,7 +600,9 @@ Maximum active evidence: {self.max_selected_evidence}
                 if selected:
                     active_ids = selected
             except Exception as exc:
-                gaps.append(f"researcher_finalization_fallback: {type(exc).__name__}: {exc}")
+                gaps.append(
+                    f"researcher_finalization_fallback: {type(exc).__name__}: {exc}"
+                )
 
         if not candidates:
             result = TaskResearchResult(
@@ -505,7 +610,11 @@ Maximum active evidence: {self.max_selected_evidence}
                 objective=task.objective,
                 status="insufficient",
                 supporting_evidence_ids=(),
-                unresolved_gaps=tuple(dict.fromkeys(gaps or ["No source-verified evidence was retrieved."])),
+                unresolved_gaps=tuple(
+                    dict.fromkeys(
+                        gaps or ["No source-verified evidence was retrieved."]
+                    )
+                ),
                 retrieval_rounds=max(rounds, 1),
                 candidate_count=0,
                 active_evidence_ids=(),
@@ -519,14 +628,20 @@ Maximum active evidence: {self.max_selected_evidence}
             final_assessment.get("evidence_requirements"), candidates
         )
         raw_status = final_assessment.get("status")
-        status = raw_status if raw_status in {"sufficient", "partial", "insufficient"} else "partial"
+        status = (
+            raw_status
+            if raw_status in {"sufficient", "partial", "insufficient"}
+            else "partial"
+        )
         assessment_gaps = final_assessment.get("unresolved_gaps") or ()
         gaps.extend(str(item) for item in assessment_gaps if str(item).strip())
 
         if not selected_ids:
             selected_ids = tuple(candidates)[: self.max_selected_evidence]
             status = "partial"
-            gaps.append("Researcher active-set selection was unavailable; retained the highest-ranked verified evidence.")
+            gaps.append(
+                "Researcher active-set selection was unavailable; retained the highest-ranked verified evidence."
+            )
         selected = tuple(candidates[evidence_id] for evidence_id in selected_ids)
         result = TaskResearchResult(
             task_id=task.task_id,
@@ -546,7 +661,9 @@ Maximum active evidence: {self.max_selected_evidence}
 class EvidenceMerger:
     """Deterministically deduplicate selected evidence across research tasks."""
 
-    def merge(self, products: list[_ResearcherWorkProduct]) -> tuple[dict[str, Any], ...]:
+    def merge(
+        self, products: list[_ResearcherWorkProduct]
+    ) -> tuple[dict[str, Any], ...]:
         merged: dict[str, dict[str, Any]] = {}
         for product in products:
             for item in product.selected_evidence:
@@ -571,7 +688,9 @@ class LocalEvidenceSynthesizer:
         plan: ResearchPlan,
         results: tuple[TaskResearchResult, ...],
         evidence: tuple[dict[str, Any], ...],
-    ) -> tuple[tuple[Finding, ...], tuple[str, ...], tuple[str, ...], str, tuple[str, ...]]:
+    ) -> tuple[
+        tuple[Finding, ...], tuple[str, ...], tuple[str, ...], str, tuple[str, ...]
+    ]:
         eligible_ids = {str(item["evidence_id"]) for item in evidence}
         task_ids = {task.task_id for task in plan.tasks}
         prompt = f"""You are the grounded local-evidence synthesizer. Produce a
@@ -603,44 +722,75 @@ Selected evidence: {json.dumps(_compact_evidence(list(evidence), limit=18), ensu
         for raw in payload.get("findings") or ():
             if not isinstance(raw, dict):
                 continue
-            finding_tasks = tuple(dict.fromkeys(
-                item for item in raw.get("task_ids") or () if item in task_ids
-            ))
-            finding_evidence = tuple(dict.fromkeys(
-                item for item in raw.get("evidence_ids") or () if item in eligible_ids
-            ))
+            finding_tasks = tuple(
+                dict.fromkeys(
+                    item for item in raw.get("task_ids") or () if item in task_ids
+                )
+            )
+            finding_evidence = tuple(
+                dict.fromkeys(
+                    item
+                    for item in raw.get("evidence_ids") or ()
+                    if item in eligible_ids
+                )
+            )
             claim = raw.get("claim")
-            if not finding_tasks or not finding_evidence or not isinstance(claim, str) or not claim.strip():
+            if (
+                not finding_tasks
+                or not finding_evidence
+                or not isinstance(claim, str)
+                or not claim.strip()
+            ):
                 continue
-            status = raw.get("status") if raw.get("status") in {"supported", "partial"} else "supported"
-            findings.append(Finding(
-                finding_id=f"F{len(findings) + 1}",
-                task_ids=finding_tasks,
-                claim=claim.strip(),
-                evidence_ids=finding_evidence,
-                status=status,
-            ))
+            status = (
+                raw.get("status")
+                if raw.get("status") in {"supported", "partial"}
+                else "supported"
+            )
+            findings.append(
+                Finding(
+                    finding_id=f"F{len(findings) + 1}",
+                    task_ids=finding_tasks,
+                    claim=claim.strip(),
+                    evidence_ids=finding_evidence,
+                    status=status,
+                )
+            )
 
         if not findings:
             for result in results:
                 task_evidence = [
-                    item for item in evidence if result.task_id in item.get("task_ids", ())
+                    item
+                    for item in evidence
+                    if result.task_id in item.get("task_ids", ())
                 ]
                 if not task_evidence:
                     continue
                 item = task_evidence[0]
                 excerpt = " ".join(str(item.get("excerpt") or "").split())[:700]
-                findings.append(Finding(
-                    finding_id=f"F{len(findings) + 1}",
-                    task_ids=(result.task_id,),
-                    claim=excerpt,
-                    evidence_ids=(str(item["evidence_id"]),),
-                    status="supported" if result.status == "sufficient" else "partial",
-                ))
-            warnings.append("Synthesizer returned no valid grounded findings; used an evidence digest.")
+                findings.append(
+                    Finding(
+                        finding_id=f"F{len(findings) + 1}",
+                        task_ids=(result.task_id,),
+                        claim=excerpt,
+                        evidence_ids=(str(item["evidence_id"]),),
+                        status="supported"
+                        if result.status == "sufficient"
+                        else "partial",
+                    )
+                )
+            warnings.append(
+                "Synthesizer returned no valid grounded findings; used an evidence digest."
+            )
 
-        conflicts = tuple(str(item) for item in payload.get("conflicts") or () if str(item).strip())
-        model_gaps = tuple(str(item) for item in payload.get("unresolved_gaps") or () if str(item).strip())
+        conflicts = tuple(
+            str(item) for item in payload.get("conflicts") or () if str(item).strip()
+        )
+        model_gaps = tuple(
+            str(item)
+            for item in payload.get("unresolved_gaps") or ()
+            if str(item).strip()
+        )
         task_gaps = tuple(gap for result in results for gap in result.unresolved_gaps)
         gaps = tuple(dict.fromkeys((*task_gaps, *model_gaps)))
         summary = payload.get("local_summary")
@@ -694,12 +844,17 @@ class LocalResearchPipeline:
 
         while pending:
             ready = [
-                task for task in pending
+                task
+                for task in pending
                 if all(dependency in completed for dependency in task.dependencies)
             ]
             if not ready:
-                raise RuntimeError("local research plan contains unresolved dependencies")
-            with ThreadPoolExecutor(max_workers=min(self.max_parallel_tasks, len(ready))) as pool:
+                raise RuntimeError(
+                    "local research plan contains unresolved dependencies"
+                )
+            with ThreadPoolExecutor(
+                max_workers=min(self.max_parallel_tasks, len(ready))
+            ) as pool:
                 futures = {
                     task.task_id: pool.submit(
                         self.researcher.research,
@@ -716,14 +871,24 @@ class LocalResearchPipeline:
         ordered_products = [completed[task.task_id] for task in plan.tasks]
         results = tuple(product.result for product in ordered_products)
         evidence = self.merger.merge(ordered_products)
-        findings, conflicts, gaps, summary, synthesis_warnings = self.synthesizer.synthesize(
-            question,
-            plan,
-            results,
-            evidence,
+        findings, conflicts, gaps, summary, synthesis_warnings = (
+            self.synthesizer.synthesize(
+                question,
+                plan,
+                results,
+                evidence,
+            )
         )
-        complete = bool(results) and all(result.status == "sufficient" for result in results)
-        status = "completed" if complete and evidence else "partial" if evidence else "unavailable"
+        complete = bool(results) and all(
+            result.status == "sufficient" for result in results
+        )
+        status = (
+            "completed"
+            if complete and evidence
+            else "partial"
+            if evidence
+            else "unavailable"
+        )
         return LocalResearchResult(
             status=status,
             query=question,

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from backend.storage.run_paths import create_run_paths
@@ -16,4 +14,3 @@ def test_create_isolated_run_paths(tmp_path):
 def test_run_id_cannot_escape_outputs_directory(tmp_path, unsafe):
     with pytest.raises(ValueError):
         create_run_paths(tmp_path, unsafe)
-

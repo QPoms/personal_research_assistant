@@ -82,3 +82,22 @@ privacy model.
    product actually needs those operational capabilities.
 5. Keep the local `gpt-researcher-main/` checkout as a read-only reference; the
    installed, pinned package remains the runtime dependency.
+
+## Path boundaries
+
+The runtime has three deliberately separate path namespaces:
+
+- Project paths: `.env` and relative `OUTPUTS_DIR` values are anchored to the
+  repository root, not the shell's current working directory.
+- Agent paths: Deep Agents sees one run directory as virtual `/`. It may write
+  only `/sections/...` and `/report.md`; host drive letters, `outputs/`, parent
+  traversal, and paths outside that run are rejected by `FilesystemBackend`.
+- Personal Knowledge paths: `PERSONAL_KNOWLEDGE_ROOT` may point outside this
+  repository (currently `F:\specrag`). Corpus, index, and evidence source paths
+  must resolve beneath that root. These host paths are never exposed as Agent
+  filesystem paths.
+
+Every run writes lifecycle state to `run.json`. Once the Agent returns, a
+bounded `agent-trace.json` records message roles, tool calls, truncated tool
+results, and the final summary for local diagnosis; it is under ignored
+`outputs/` and must not contain provider credentials.

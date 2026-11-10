@@ -21,7 +21,7 @@ from personal_knowledge.service import LocalPersonalKnowledgeService
 def build_personal_knowledge_tool(settings: Settings):
     """Build a local Tool; no HTTP, authentication, or workspace is involved."""
     settings.validate_for_personal_research()
-    root = settings.personal_knowledge_root.expanduser().resolve()
+    root = settings.resolved_personal_knowledge_root()
     # The migrated retrieval core resolves both corpus and index paths beneath
     # this application-owned root. It is configuration, never an LLM argument.
     os.environ["PERSONAL_KNOWLEDGE_ROOT"] = str(root)
@@ -44,14 +44,15 @@ def build_personal_knowledge_tool(settings: Settings):
                 "explicitly authorizing that disclosure."
             )
         model_name = (
-            settings.personal_knowledge_research_model
-            or settings.deep_agent_model
+            settings.personal_knowledge_research_model or settings.deep_agent_model
         )
-        research_model = LangChainStructuredResearchModel(deep_agent_model(
-            model_name,
-            max_output_tokens=settings.personal_knowledge_model_max_output_tokens,
-            use_responses_api=settings.deep_agent_use_responses_api,
-        ))
+        research_model = LangChainStructuredResearchModel(
+            deep_agent_model(
+                model_name,
+                max_output_tokens=settings.personal_knowledge_model_max_output_tokens,
+                use_responses_api=settings.deep_agent_use_responses_api,
+            )
+        )
         service: Any = LocalResearchPipeline(
             core,
             research_model,
@@ -78,16 +79,24 @@ def build_personal_knowledge_tool(settings: Settings):
         """
         try:
             result = await asyncio.to_thread(search_method, query)
-            payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+            payload = (
+                result.model_dump(mode="json")
+                if hasattr(result, "model_dump")
+                else result
+            )
             if settings.personal_knowledge_research_enabled:
                 payload["answer"] = payload["local_summary"]
                 payload["evidence_status"] = (
                     "retrieved" if payload["evidence"] else "insufficient"
                 )
-                payload["failure"] = None if payload["evidence"] else {
-                    "category": "no_valid_evidence",
-                    "message": "; ".join(payload["unresolved_gaps"]),
-                }
+                payload["failure"] = (
+                    None
+                    if payload["evidence"]
+                    else {
+                        "category": "no_valid_evidence",
+                        "message": "; ".join(payload["unresolved_gaps"]),
+                    }
+                )
             return payload
         except Exception as exc:
             return {
@@ -111,4 +120,3 @@ def build_personal_knowledge_tool(settings: Settings):
             }
 
     return search_personal_knowledge
-

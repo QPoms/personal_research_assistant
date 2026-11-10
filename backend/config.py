@@ -9,6 +9,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ENV_FILE = PROJECT_ROOT / ".env"
+
+
 class Settings(BaseSettings):
     """Application-owned settings.
 
@@ -17,7 +21,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=PROJECT_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -49,10 +53,36 @@ class Settings(BaseSettings):
     personal_knowledge_max_parallel_tasks: int = Field(default=3, ge=1, le=3)
     personal_knowledge_max_tool_calls_per_task: int = Field(default=12, ge=1, le=24)
 
+    def resolved_outputs_dir(self) -> Path:
+        path = self.outputs_dir.expanduser()
+        return (
+            (PROJECT_ROOT / path).resolve()
+            if not path.is_absolute()
+            else path.resolve()
+        )
+
+    def resolved_personal_knowledge_root(self) -> Path:
+        path = self.personal_knowledge_root.expanduser()
+        return (
+            (PROJECT_ROOT / path).resolve()
+            if not path.is_absolute()
+            else path.resolve()
+        )
+
+    def resolved_personal_knowledge_path(self, configured: str, label: str) -> Path:
+        root = self.resolved_personal_knowledge_root()
+        path = (root / configured).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError(f"{label} escapes Personal Knowledge root: {configured}")
+        return path
+
     def validate_for_personal_research(self) -> None:
-        root = self.personal_knowledge_root.expanduser().resolve()
-        corpus = (root / self.personal_knowledge_corpus_dir).resolve()
-        index = (root / self.personal_knowledge_index_dir).resolve()
+        corpus = self.resolved_personal_knowledge_path(
+            self.personal_knowledge_corpus_dir, "Personal knowledge corpus"
+        )
+        index = self.resolved_personal_knowledge_path(
+            self.personal_knowledge_index_dir, "Personal knowledge index"
+        )
         if not corpus.is_dir():
             raise ValueError(f"Personal knowledge corpus does not exist: {corpus}")
         if not index.is_dir() and not self.personal_knowledge_allow_index_build:
@@ -64,7 +94,5 @@ def load_settings() -> Settings:
     # from os.environ. Make the repository-local file authoritative so stale
     # credentials inherited from the launching shell cannot silently replace
     # the key the user configured for this project.
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=PROJECT_ENV_FILE, override=True)
     return Settings()
-
-

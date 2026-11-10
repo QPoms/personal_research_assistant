@@ -133,7 +133,10 @@ uv run python cli.py --query "..." --source-mode mixed
 ```
 
 Each run gets an isolated directory under `outputs/` containing `run.json`,
-section drafts, and `report.md`.
+`agent-trace.json`, section drafts, and `report.md`. Relative output paths are
+anchored to the repository root. Inside Deep Agents, the same run directory is
+exposed only as virtual `/`; drafts use `/sections/...` and the final report
+uses `/report.md`.
 
 ## Tests
 

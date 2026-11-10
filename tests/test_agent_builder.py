@@ -3,9 +3,12 @@ from types import SimpleNamespace
 import deep_agents.builder as builder
 from backend.config import Settings
 from research_tools.gpt_researcher import CostTracker
+import pytest
 
 
-def test_builder_disables_general_purpose_and_keeps_only_researcher(monkeypatch, tmp_path):
+def test_builder_disables_general_purpose_and_keeps_only_researcher(
+    monkeypatch, tmp_path
+):
     captured = {}
     configured_model = object()
     builder._REGISTERED_PROFILES.clear()
@@ -64,15 +67,21 @@ def test_builder_disables_general_purpose_and_keeps_only_researcher(monkeypatch,
     assert [subagent["name"] for subagent in kwargs["subagents"]] == ["researcher"]
     assert kwargs["subagents"][0]["tools"] == [researcher_tool]
     assert "write_todos" in kwargs["system_prompt"]
+    backend = kwargs["backend"]
+    assert backend.virtual_mode is True
+    assert backend._resolve_path("/report.md") == tmp_path / "report.md"
+    with pytest.raises(ValueError, match="outside root directory"):
+        backend._resolve_path(str(tmp_path.parent / "outside.md"))
 
 
 def test_harness_profile_registration_is_idempotent(monkeypatch):
     calls = []
     builder._REGISTERED_PROFILES.clear()
-    monkeypatch.setattr(builder, "register_harness_profile", lambda *args: calls.append(args))
+    monkeypatch.setattr(
+        builder, "register_harness_profile", lambda *args: calls.append(args)
+    )
 
     builder._disable_general_purpose_subagent("openai:test-model")
     builder._disable_general_purpose_subagent("openai:test-model")
 
     assert len(calls) == 1
-

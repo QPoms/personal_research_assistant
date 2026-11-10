@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Literal
@@ -37,7 +36,10 @@ class RetrievalCfg(BaseModel):
 
     @model_validator(mode="after")
     def _valid_retrieval_mechanics(self):
-        if self.version_policy == "highest_version_within_release" and self.target_release is None:
+        if (
+            self.version_policy == "highest_version_within_release"
+            and self.target_release is None
+        ):
             raise ValueError("target_release is required")
         if self.version_policy == "latest_per_spec" and self.target_release is not None:
             raise ValueError("target_release is invalid for latest_per_spec")
@@ -66,4 +68,3 @@ def load_config() -> AppConfig:
             target_release=release,
         )
     )
-

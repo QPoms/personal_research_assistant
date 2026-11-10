@@ -1,7 +1,12 @@
 from types import SimpleNamespace
+import pytest
 
 from personal_knowledge.contracts import NativeFunctionCall
-from personal_knowledge.research.pipeline import LocalResearchPipeline
+from personal_knowledge.research.pipeline import (
+    LocalResearchPipeline,
+    LocalRetrievalToolRegistry,
+    LocalTaskResearcher,
+)
 from personal_knowledge.retrieval.models import CorpusScope
 from personal_knowledge.tools import (
     RetrievalToolRequest,
@@ -55,14 +60,18 @@ class FakeCore:
 
     @staticmethod
     def validate_tool_evidence(item: ToolEvidence):
-        evidence_id = "E-EXCEPTION" if item.chunk_id == "chunk-exception" else "E-SHARED"
+        evidence_id = (
+            "E-EXCEPTION" if item.chunk_id == "chunk-exception" else "E-SHARED"
+        )
         value = _evidence(evidence_id, item.excerpt)
-        value.update({
-            "chunk_id": item.chunk_id,
-            "retrieval_tool": item.match_kind,
-            "score": item.score,
-            "score_kind": item.score_kind,
-        })
+        value.update(
+            {
+                "chunk_id": item.chunk_id,
+                "retrieval_tool": item.match_kind,
+                "score": item.score,
+                "score_kind": item.score_kind,
+            }
+        )
         return value
 
 
@@ -112,8 +121,8 @@ class FakeRegistry:
             line_end=12,
             excerpt=(
                 "A narrowly defined exception applies before security activation."
-                if exception else
-                "Integrity protection applies to protected NAS messages."
+                if exception
+                else "Integrity protection applies to protected NAS messages."
             ),
         )
 
@@ -137,26 +146,42 @@ class FakeStructuredModel:
                     },
                 ]
             }
-        if "SpecRAG local Researcher" in prompt and '"task_id":"T1"' in prompt and 'Evidence ledger: []' in prompt:
+        if (
+            "SpecRAG local Researcher" in prompt
+            and '"task_id":"T1"' in prompt
+            and "Evidence ledger: []" in prompt
+        ):
             return {
                 "actions": [
-                    {"tool": "keyword_search", "arguments": {
-                        "query_id": "T1", "max_results": 6,
-                        "target_specifications": [],
-                        "lexical_query": "NAS integrity rule",
-                    }}
+                    {
+                        "tool": "keyword_search",
+                        "arguments": {
+                            "query_id": "T1",
+                            "max_results": 6,
+                            "target_specifications": [],
+                            "lexical_query": "NAS integrity rule",
+                        },
+                    }
                 ],
                 "active_evidence_ids": [],
                 "submit_research_result": False,
             }
-        if "SpecRAG local Researcher" in prompt and '"task_id":"T2"' in prompt and 'Evidence ledger: []' in prompt:
+        if (
+            "SpecRAG local Researcher" in prompt
+            and '"task_id":"T2"' in prompt
+            and "Evidence ledger: []" in prompt
+        ):
             return {
                 "actions": [
-                    {"tool": "semantic_search", "arguments": {
-                        "query_id": "T2", "max_results": 6,
-                        "target_specifications": [],
-                        "semantic_query": "NAS integrity exception",
-                    }}
+                    {
+                        "tool": "semantic_search",
+                        "arguments": {
+                            "query_id": "T2",
+                            "max_results": 6,
+                            "target_specifications": [],
+                            "semantic_query": "NAS integrity exception",
+                        },
+                    }
                 ],
                 "active_evidence_ids": [],
                 "submit_research_result": False,
@@ -210,7 +235,9 @@ def test_pipeline_preserves_planner_tasks_and_merges_selected_evidence():
         max_parallel_tasks=2,
     )
 
-    result = pipeline.research("When does NAS integrity protection apply, and what are the exceptions?")
+    result = pipeline.research(
+        "When does NAS integrity protection apply, and what are the exceptions?"
+    )
 
     assert result.status == "completed"
     assert [task.task_id for task in result.plan.tasks] == ["T1", "T2"]
@@ -229,3 +256,108 @@ def test_pipeline_preserves_planner_tasks_and_merges_selected_evidence():
     assert result.task_results[1].tool_calls[0]["tool"] == "semantic_search"
     assert len(pipeline.tools.definitions) == 9
     assert result.task_results[1].active_evidence_ids == ("E-SHARED", "E-EXCEPTION")
+
+
+def test_registry_rejects_model_invented_query_id():
+    tools = LocalRetrievalToolRegistry(FakeCore())
+
+    with pytest.raises(ValueError, match="unknown query_id: q1; expected T1"):
+        tools.parse_action(
+            {
+                "tool": "keyword_search",
+                "arguments": {
+                    "query_id": "q1",
+                    "max_results": 6,
+                    "target_specifications": [],
+                    "lexical_query": "NAS integrity",
+                },
+            },
+            call_id="T1-R1-C1",
+            query_id="T1",
+        )
+
+
+def test_call_signature_ignores_only_result_limit():
+    first = parse_retrieval_tool_arguments(
+        "keyword_search",
+        {
+            "query_id": "T1",
+            "max_results": 4,
+            "target_specifications": ["24.501"],
+            "lexical_query": "NAS integrity",
+        },
+    )
+    second = parse_retrieval_tool_arguments(
+        "keyword_search",
+        {
+            "query_id": "T1",
+            "max_results": 12,
+            "target_specifications": ["24.501"],
+            "lexical_query": " nas INTEGRITY ",
+        },
+    )
+
+    assert LocalTaskResearcher._call_signature(
+        "keyword_search", first
+    ) == LocalTaskResearcher._call_signature("keyword_search", second)
+
+
+class DependencyNavigationModel:
+    def complete_json(self, prompt: str):
+        if "Evidence ledger: []" in prompt:
+            return {
+                "active_evidence_ids": [],
+                "submit_research_result": False,
+                "actions": [
+                    {
+                        "tool": "expand_source_context",
+                        "arguments": {
+                            "query_id": "T2",
+                            "max_results": 6,
+                            "seed_evidence_ids": ["E-DEPENDENCY"],
+                        },
+                    }
+                ],
+            }
+        return {
+            "status": "sufficient",
+            "active_evidence_ids": ["E-SHARED"],
+            "evidence_requirements": [],
+            "unresolved_gaps": [],
+            "submit_research_result": True,
+            "actions": [],
+        }
+
+
+def test_dependency_evidence_is_a_trusted_navigation_seed_not_a_candidate():
+    core = FakeCore()
+    researcher = LocalTaskResearcher(
+        DependencyNavigationModel(),
+        LocalRetrievalToolRegistry(core),
+        max_rounds=2,
+        max_tool_calls=2,
+    )
+    dependency = _evidence("E-DEPENDENCY", "Dependency evidence.")
+    dependency.update(
+        {
+            "chunk_id": "chunk-shared",
+            "retrieval_tool": "keyword_search",
+            "score": 1.0,
+            "score_kind": "bm25",
+        }
+    )
+
+    product = researcher.research(
+        SimpleNamespace(
+            task_id="T2",
+            objective="Follow the dependency evidence",
+            question="Find adjacent context in TS 24.501",
+            model_dump_json=lambda: '{"task_id":"T2"}',
+        ),
+        dependency_context=[dependency],
+    )
+
+    assert product.result.status == "sufficient"
+    assert product.result.candidate_count == 1
+    assert product.result.tool_calls[0]["tool"] == "expand_source_context"
+    assert product.result.tool_calls[0]["status"] == "completed"

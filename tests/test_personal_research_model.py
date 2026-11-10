@@ -33,3 +33,20 @@ def test_structured_model_retries_one_malformed_response():
 
     assert model.complete_json("test") == {"status": "partial"}
     assert inner.calls == 2
+
+
+class AlwaysMalformedModel:
+    def invoke(self, prompt):
+        return SimpleNamespace(content="plain prose", additional_kwargs={})
+
+
+def test_structured_model_failure_includes_bounded_response_diagnostic():
+    model = LangChainStructuredResearchModel(AlwaysMalformedModel())
+
+    try:
+        model.complete_json("test")
+    except ValueError as exc:
+        assert "attempt 1 content: 'plain prose'" in str(exc)
+        assert "attempt 2 content: 'plain prose'" in str(exc)
+    else:
+        raise AssertionError("malformed responses were accepted")

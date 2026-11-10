@@ -53,6 +53,7 @@ class LangChainStructuredResearchModel:
 
     def complete_json(self, prompt: str) -> dict[str, Any]:
         last_error: Exception | None = None
+        diagnostics: list[str] = []
         for attempt in range(2):
             request = prompt
             if attempt:
@@ -62,18 +63,25 @@ class LangChainStructuredResearchModel:
                     "Markdown, or surrounding prose."
                 )
             response = self._model.invoke(request)
-            candidates = [_message_text(response.content)]
+            candidates = [("content", _message_text(response.content))]
             reasoning = response.additional_kwargs.get("reasoning_content")
             if isinstance(reasoning, str):
-                candidates.append(reasoning)
-            for text in candidates:
+                candidates.append(("reasoning_content", reasoning))
+            if not any(text.strip() for _, text in candidates):
+                diagnostics.append(f"attempt {attempt + 1}: empty response")
+            for source, text in candidates:
                 if not text.strip():
                     continue
                 try:
                     return _parse_json_object(text)
                 except (ValueError, json.JSONDecodeError) as exc:
                     last_error = exc
-        raise ValueError("model response did not contain a JSON object") from last_error
+                    preview = text.strip().replace("\n", " ")[:240]
+                    diagnostics.append(f"attempt {attempt + 1} {source}: {preview!r}")
+        detail = "; ".join(diagnostics) or "no response diagnostics"
+        raise ValueError(
+            "model response did not contain a JSON object; " + detail
+        ) from last_error
 
 
 __all__ = [
